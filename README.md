@@ -82,6 +82,29 @@ Manual deployment option:
   - `ROUTER_AUTH_MODE` (`key` or `password`)
   - `ROUTER_PASSWORD` (only if password mode is used)
 
+### Self-Hosted Runner Deployment (Validated Setup)
+1. In GitHub repo settings, add secrets:
+   - `ROUTER_SSH_TARGET=root@192.168.1.1`
+   - `ROUTER_AUTH_MODE=key`
+   - `ROUTER_PASSWORD` optional (not needed for key mode)
+2. Create and start a self-hosted runner for this repository on a machine in the same LAN as router (macOS/Linux).
+3. Configure SSH key auth from runner machine to OpenWrt.
+4. Run workflow manually with `deploy_to_router=true`.
+
+Important OpenWrt note:
+- On this setup, Dropbear uses `/etc/dropbear/authorized_keys`.
+- Copy public key from runner machine using:
+
+```sh
+cat ~/.ssh/id_ed25519.pub | ssh root@192.168.1.1 "umask 077; mkdir -p /etc/dropbear; cat > /etc/dropbear/authorized_keys; chmod 600 /etc/dropbear/authorized_keys"
+ssh root@192.168.1.1 "/etc/init.d/dropbear restart"
+```
+
+Verify key-only auth:
+```sh
+ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes root@192.168.1.1 "echo ok"
+```
+
 ## Deploy
 ```sh
 make deploy
