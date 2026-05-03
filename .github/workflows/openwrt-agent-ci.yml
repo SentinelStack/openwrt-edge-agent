@@ -6,6 +6,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      deploy_to_router:
+        description: "Deploy to router (requires self-hosted runner in same LAN)"
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   build-and-check:
@@ -28,6 +34,33 @@ jobs:
       - name: Upload net_filter artifact
         uses: actions/upload-artifact@v4
         with:
-          name: net_filter
+          name: net_filter-armv7
           path: net_filter
           if-no-files-found: error
+          retention-days: 14
+
+  deploy-router:
+    name: Deploy to OpenWrt Router
+    needs: build-and-check
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy_to_router == true
+    runs-on: self-hosted
+    env:
+      ROUTER: ${{ secrets.ROUTER_SSH_TARGET }}
+      ROUTER_AUTH_MODE: ${{ secrets.ROUTER_AUTH_MODE }}
+      ROUTER_PASSWORD: ${{ secrets.ROUTER_PASSWORD }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download net_filter artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: net_filter-armv7
+          path: .
+
+      - name: Ensure executable bit
+        run: chmod +x net_filter scripts/deploy.sh
+
+      - name: Deploy using project script
+        run: ./scripts/deploy.sh

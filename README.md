@@ -20,7 +20,7 @@ Target environment:
 
 ## Repository Structure
 ```text
-openwrt-c/
+openwrt-edge-agent/
 ├── .github/
 │   └── workflows/
 │       └── openwrt-agent-ci.yml
@@ -73,6 +73,14 @@ On every push and pull request to `main`, GitHub Actions:
 - cross-compiles `net_filter`
 - runs `file net_filter`
 - uploads `net_filter` as a workflow artifact
+
+Manual deployment option:
+- `workflow_dispatch` supports `deploy_to_router=true`
+- deploy job is designed for a self-hosted runner inside the same network as the router
+- required GitHub secrets for deploy job:
+  - `ROUTER_SSH_TARGET` (example: `root@192.168.1.1`)
+  - `ROUTER_AUTH_MODE` (`key` or `password`)
+  - `ROUTER_PASSWORD` (only if password mode is used)
 
 ## Deploy
 ```sh
