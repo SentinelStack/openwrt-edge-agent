@@ -6,3 +6,4 @@ openwrt-toolchain-*.tar.xz
 openwrt-toolchain-*/
 .DS_Store
 config/router.env
+.vscode/
