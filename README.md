@@ -74,6 +74,20 @@ On every push and pull request to `main`, GitHub Actions:
 - runs `file net_filter`
 - uploads `net_filter` as a workflow artifact
 
+## Automated Releases (GitHub Actions)
+Release workflow:
+- file: `.github/workflows/release.yml`
+- trigger: push a tag like `v0.1.0`
+- result: GitHub Release with attached assets:
+  - `net_filter-armv7`
+  - `net_filter-armv7.sha256`
+
+Create a new release tag from local:
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
 Manual deployment option:
 - `workflow_dispatch` supports `deploy_to_router=true`
 - deploy job is designed for a self-hosted runner inside the same network as the router
