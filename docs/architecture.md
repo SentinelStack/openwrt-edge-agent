@@ -1,59 +1,33 @@
-# OpenWrt IDS/IPS Thesis Architecture
+# Edge-First Architecture (Current Scope)
 
-This repository contains the first module of a larger OpenWrt-based intelligent IDS/IPS platform.
+This stage focuses on router-side processing. The OpenWrt agent performs the first analysis layer locally and generates immediate statistics and alerts.
 
-## 1) OpenWrt Agent (C)
-- Captures packets using raw sockets on the router
-- Filters TCP/UDP traffic
-- Extracts lightweight traffic features for later analysis
+Current in-scope components:
+1. Packet capture on OpenWrt (`AF_PACKET`, `SOCK_RAW`)
+2. Packet parser (Ethernet + IPv4 + TCP/UDP headers)
+3. Local traffic statistics
+4. Local anomaly detector
+5. Local alert output (stdout logger)
 
-## 2) Backend
-- Receives metrics and alert events from the agent
-- Stores events for querying and history
-- Integrates MISP threat intelligence for enrichment
+Future components (out of current implementation scope):
+- Backend API and storage
+- AI summarization/classification
+- MISP integration
+- Web dashboard
+- iOS app
 
-## 3) AI Component
-- Summarizes alerts into short incident reports
-- Categorizes attack patterns
-- Explains incidents in human-readable language
-
-## 4) Web Dashboard
-- Shows latest attacks
-- Displays traffic statistics
-- Provides detailed alert views
-
-## 5) iOS App
-- Mobile-friendly operational view
-- Push notifications for important alerts
-
-## 6) DevOps
-- Docker-based reproducible cross-compilation
-- GitHub Actions planned for CI/CD
-- Nexus planned for versioned artifact storage
-
-## High-Level Diagram
+## Data Flow
 
 ```text
-                     +--------------------+
-                     |    iOS App         |
-                     | notifications/view |
-                     +---------+----------+
-                               |
-                               v
- +------------------+   +------+-------+   +----------------------+
- | OpenWrt Agent C  +-->+   Backend    +<->+ MISP Threat Intel    |
- | capture/filter   |   | API + Store  |   | enrichment context   |
- +--------+---------+   +------+-------+   +----------------------+
-          |                    |
-          |                    v
-          |            +-------+--------+
-          |            | AI Component   |
-          |            | summarize/class|
-          |            +-------+--------+
-          |                    |
-          v                    v
-      Router Traffic     +-----+------+
-                         | Web Dashboard|
-                         | attacks/stats|
-                         +-------------+
+OpenWrt Router
+  -> Packet Capture
+  -> Packet Parser
+  -> Local Statistics
+  -> Local Anomaly Detector
+  -> Alerts
+  -> Future Backend / AI / MISP / Web / iOS
 ```
+
+## Notes
+- Analysis happens on router first to reduce backend load and unnecessary traffic export.
+- Later backend services should receive compact alerts/statistics instead of raw packet streams.

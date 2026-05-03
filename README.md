@@ -1,17 +1,18 @@
 # openwrt-c
 
-`openwrt-c` is the OpenWrt embedded traffic analysis agent for a bachelor thesis project focused on an intelligent IDS/IPS platform.
+`openwrt-c` is the OpenWrt router-side traffic processing agent for a bachelor thesis IDS/IPS project.
 
-Current feature set (first milestone):
-- Raw socket packet capture on OpenWrt
-- TCP/UDP packet filtering
-- Basic flow line output:
-  - source IP
-  - source port
-  - destination IP
-  - destination port
+The current focus is local processing on the OpenWrt device itself. Backend, AI, MISP, web dashboard, iOS app, CI/CD expansion, and Nexus integration are future extensions.
 
-Target environment:
+## Current Features (Router-Side)
+- Raw packet capture with `AF_PACKET` + `SOCK_RAW`
+- Ethernet/IPv4/TCP/UDP parsing
+- Local TCP/UDP traffic processing directly on router
+- Local traffic statistics every 5 seconds
+- Local anomaly detection with lightweight threshold rules
+- Local stdout alerts/logs
+
+## Target Environment
 - Router: Linksys WRT3200ACM
 - OpenWrt: 23.05.3
 - Target: `mvebu/cortexa9`
@@ -20,26 +21,40 @@ Target environment:
 
 ## Repository Structure
 ```text
-openwrt-edge-agent/
-├── .github/
-│   └── workflows/
-│       └── openwrt-agent-ci.yml
-├── config/
-│   └── router.env.example
-├── docs/
-│   ├── architecture.md
-│   └── development-notes.md
+openwrt-c/
+├── src/
+│   ├── main.c
+│   ├── packet_capture.c
+│   ├── packet_capture.h
+│   ├── packet_parser.c
+│   ├── packet_parser.h
+│   ├── traffic_stats.c
+│   ├── traffic_stats.h
+│   ├── anomaly_detector.c
+│   ├── anomaly_detector.h
+│   ├── logger.c
+│   └── logger.h
 ├── scripts/
 │   ├── deploy.sh
 │   └── run.sh
-├── src/
-│   └── net_filter.c
-├── .gitignore
+├── docs/
+│   ├── architecture.md
+│   └── development-notes.md
 ├── Dockerfile
-├── LICENSE
 ├── Makefile
-└── README.md
+├── README.md
+├── .gitignore
+└── LICENSE
 ```
+
+## Why Docker Is Used
+OpenWrt toolchains are Linux x86_64 based, while development is done on macOS. Docker provides reproducible cross-compilation and avoids dependency drift on host machines.
+
+## Why Processing Is Done On Router
+The OpenWrt router performs first-layer analysis at the edge. This reduces backend load and network bandwidth by processing packets where traffic is observed.
+
+## What Traffic The Router Can See
+The router can analyze only traffic that passes through it or traffic generated locally on the router itself.
 
 ## Prerequisites
 - Docker Desktop
@@ -53,12 +68,11 @@ Create a local settings file:
 cp config/router.env.example config/router.env
 ```
 
-Then edit `config/router.env` as needed (router host, auth mode).
+Default values:
+- `ROUTER=root@192.168.1.1`
+- `ROUTER_AUTH_MODE=key` (recommended)
 
-Notes:
-- `ROUTER_AUTH_MODE=key` is recommended.
-- `ROUTER_AUTH_MODE=password` requires `sshpass` installed locally.
-- `config/router.env` is ignored by Git and should never contain production secrets in version control.
+If using password mode, install `sshpass` and set `ROUTER_PASSWORD`.
 
 ## Build
 ```sh
@@ -67,91 +81,57 @@ make build
 make check
 ```
 
-## CI (GitHub Actions)
-On every push and pull request to `main`, GitHub Actions:
-- builds the Docker toolchain image
-- cross-compiles `net_filter`
-- runs `file net_filter`
-- uploads `net_filter` as a workflow artifact
-
-## Automated Releases (GitHub Actions)
-Release workflow:
-- file: `.github/workflows/release.yml`
-- trigger: push a tag like `v0.1.0`
-- result: GitHub Release with attached assets:
-  - `net_filter-armv7`
-  - `net_filter-armv7.sha256`
-
-Create a new release tag from local:
-```sh
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-Manual deployment option:
-- `workflow_dispatch` supports `deploy_to_router=true`
-- deploy job is designed for a self-hosted runner inside the same network as the router
-- required GitHub secrets for deploy job:
-  - `ROUTER_SSH_TARGET` (example: `root@192.168.1.1`)
-  - `ROUTER_AUTH_MODE` (`key` or `password`)
-  - `ROUTER_PASSWORD` (only if password mode is used)
-
-### Self-Hosted Runner Deployment (Validated Setup)
-1. In GitHub repo settings, add secrets:
-   - `ROUTER_SSH_TARGET=root@192.168.1.1`
-   - `ROUTER_AUTH_MODE=key`
-   - `ROUTER_PASSWORD` optional (not needed for key mode)
-2. Create and start a self-hosted runner for this repository on a machine in the same LAN as router (macOS/Linux).
-3. Configure SSH key auth from runner machine to OpenWrt.
-4. Run workflow manually with `deploy_to_router=true`.
-
-Important OpenWrt note:
-- On this setup, Dropbear uses `/etc/dropbear/authorized_keys`.
-- Copy public key from runner machine using:
-
-```sh
-cat ~/.ssh/id_ed25519.pub | ssh root@192.168.1.1 "umask 077; mkdir -p /etc/dropbear; cat > /etc/dropbear/authorized_keys; chmod 600 /etc/dropbear/authorized_keys"
-ssh root@192.168.1.1 "/etc/init.d/dropbear restart"
-```
-
-Verify key-only auth:
-```sh
-ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes root@192.168.1.1 "echo ok"
-```
+Build output binary:
+- `openwrt-agent`
 
 ## Deploy
 ```sh
 make deploy
 ```
 
+Deploy copies binary using `scp -O` to:
+- `root@192.168.1.1:/root/openwrt-agent`
+
+Then remote chmod:
+- `chmod +x /root/openwrt-agent`
+
 ## Run
+Process TCP and UDP:
+```sh
+make run
+```
+
+Process TCP only:
 ```sh
 make run-tcp
+```
+
+Process UDP only:
+```sh
 make run-udp
 ```
 
-## Test Traffic
-Generate TCP traffic:
+Direct CLI usage:
 ```sh
-wget -O - http://example.com
+./openwrt-agent
+./openwrt-agent --tcp
+./openwrt-agent --udp
+./openwrt-agent --help
 ```
 
-Generate UDP traffic:
-```sh
-nslookup google.com 8.8.8.8
+## Example Output
+Packet logs:
+```text
+[TCP] 192.168.1.100:52341 -> 93.184.216.34:80 size=74
+[UDP] 192.168.1.1:48722 -> 8.8.8.8:53 size=90
 ```
 
-If traffic generated from your Mac does not appear, the Mac may not be routing through the OpenWrt device. The sensor sees traffic that passes through the router (or is generated locally on it).
+5-second summary:
+```text
+[INFO] [STATS] total_packets=120 tcp=80 udp=40 total_bytes=64000 tcp_bytes=50000 udp_bytes=14000
+```
 
-## Roadmap
-- Packet counters per second
-- Per-port statistics
-- Simple anomaly detection
-- JSON export
-- Backend integration
-- AI summarization
-- MISP integration
-- Web dashboard
-- iOS app
-- CI/CD
-- Nexus repository
+Anomaly alerts:
+```text
+[ALERT] Possible UDP flood detected: udp_packets=230 in last 5 seconds
+```

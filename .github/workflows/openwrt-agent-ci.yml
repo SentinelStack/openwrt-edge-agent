@@ -15,7 +15,7 @@ on:
 
 jobs:
   build-and-check:
-    name: Build and Check net_filter
+    name: Build and Check openwrt-agent
     runs-on: ubuntu-latest
 
     steps:
@@ -25,17 +25,17 @@ jobs:
       - name: Build Docker image
         run: make docker-build
 
-      - name: Cross-compile net_filter
+      - name: Cross-compile openwrt-agent
         run: make build
 
       - name: Validate binary type
         run: make check
 
-      - name: Upload net_filter artifact
+      - name: Upload openwrt-agent artifact
         uses: actions/upload-artifact@v4
         with:
-          name: net_filter-armv7
-          path: net_filter
+          name: openwrt-agent-armv7
+          path: openwrt-agent
           if-no-files-found: error
           retention-days: 14
 
@@ -53,14 +53,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download net_filter artifact
+      - name: Download openwrt-agent artifact
         uses: actions/download-artifact@v4
         with:
-          name: net_filter-armv7
+          name: openwrt-agent-armv7
           path: .
 
       - name: Ensure executable bit
-        run: chmod +x net_filter scripts/deploy.sh
+        run: chmod +x openwrt-agent scripts/deploy.sh
 
       - name: Deploy using project script
         run: ./scripts/deploy.sh

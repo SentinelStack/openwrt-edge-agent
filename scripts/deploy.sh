@@ -6,7 +6,7 @@ if [ -f "./config/router.env" ]; then
 fi
 
 ROUTER="${ROUTER:-root@192.168.1.1}"
-BINARY="net_filter"
+BINARY="openwrt-agent"
 REMOTE_PATH="/root/${BINARY}"
 
 if [ ! -f "${BINARY}" ]; then

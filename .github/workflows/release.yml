@@ -21,7 +21,7 @@ jobs:
       - name: Build Docker image
         run: make docker-build
 
-      - name: Cross-compile net_filter
+      - name: Cross-compile openwrt-agent
         run: make build
 
       - name: Validate binary type
@@ -29,13 +29,13 @@ jobs:
 
       - name: Prepare release assets
         run: |
-          cp net_filter net_filter-armv7
-          sha256sum net_filter-armv7 > net_filter-armv7.sha256
+          cp openwrt-agent openwrt-agent-armv7
+          sha256sum openwrt-agent-armv7 > openwrt-agent-armv7.sha256
 
       - name: Create or update GitHub release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
           files: |
-            net_filter-armv7
-            net_filter-armv7.sha256
+            openwrt-agent-armv7
+            openwrt-agent-armv7.sha256

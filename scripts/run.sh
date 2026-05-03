@@ -8,16 +8,19 @@ fi
 
 ROUTER="${ROUTER:-root@192.168.1.1}"
 
-if [ "${#}" -ne 1 ]; then
-  echo "Usage: $0 <tcp|udp>" >&2
+if [ "${#}" -gt 1 ]; then
+  echo "Usage: $0 [--tcp|--udp]" >&2
   exit 1
 fi
 
-PROTO="$1"
-if [ "${PROTO}" != "tcp" ] && [ "${PROTO}" != "udp" ]; then
-  echo "Invalid protocol: ${PROTO}" >&2
-  echo "Usage: $0 <tcp|udp>" >&2
-  exit 1
+ARGS=""
+if [ "${#}" -eq 1 ]; then
+  ARGS="$1"
+  if [ "${ARGS}" != "--tcp" ] && [ "${ARGS}" != "--udp" ]; then
+    echo "Invalid argument: ${ARGS}" >&2
+    echo "Usage: $0 [--tcp|--udp]" >&2
+    exit 1
+  fi
 fi
 
 if [ "${ROUTER_AUTH_MODE:-key}" = "password" ]; then
@@ -30,7 +33,7 @@ if [ "${ROUTER_AUTH_MODE:-key}" = "password" ]; then
     echo "ROUTER_PASSWORD is not set." >&2
     exit 1
   fi
-  sshpass -p "${ROUTER_PASSWORD}" ssh "${ROUTER}" "/root/net_filter ${PROTO}"
+  sshpass -p "${ROUTER_PASSWORD}" ssh "${ROUTER}" "/root/openwrt-agent ${ARGS}"
 else
-  ssh "${ROUTER}" "/root/net_filter ${PROTO}"
+  ssh "${ROUTER}" "/root/openwrt-agent ${ARGS}"
 fi
