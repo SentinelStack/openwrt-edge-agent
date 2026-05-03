@@ -1,0 +1,17 @@
+{
+    "configurations": [
+        {
+            "name": "Mac",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/Users/georgelupu/Desktop/Facultate/openwrt-c/openwrt-toolchain-23.05.3-mvebu-cortexa9_gcc-12.3.0_musl_eabi.Linux-x86_64/toolchain-arm_cortex-a9+vfpv3-d16_gcc-12.3.0_musl_eabi/include"
+            ],
+            "defines": [],
+            "compilerPath": "/usr/bin/clang",
+            "cStandard": "c17",
+            "cppStandard": "c++14",
+            "intelliSenseMode": "macos-clang-arm64"
+        }
+    ],
+    "version": 4
+}
