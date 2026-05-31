@@ -1,4 +1,7 @@
 #include "anomaly_detector.h"
+#include "backend_client.h"
+#include "flow_table.h"
+#include "iso_time.h"
 #include "logger.h"
 #include "packet_capture.h"
 #include "packet_parser.h"
@@ -6,6 +9,7 @@
 
 #include <errno.h>
 #include <signal.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -45,6 +49,46 @@ static int should_process_packet(enum filter_mode mode, unsigned int protocol) {
     return 1;
 }
 
+
+static uint8_t protocol_for_alert(const char *protocol) {
+    if (strcmp(protocol, "TCP") == 0) {
+        return PROTO_TCP;
+    }
+    if (strcmp(protocol, "UDP") == 0) {
+        return PROTO_UDP;
+    }
+    return 0;
+}
+
+static void flush_window(struct backend_config *backend,
+                         const struct traffic_stats *window_stats,
+                         const struct flow_table *flows,
+                         int window_seconds, time_t now) {
+    struct anomaly_alert alerts[ANOMALY_MAX_ALERTS];
+    char timestamp[32];
+    int alert_count = 0;
+    int i;
+
+    iso_time_format(now, timestamp, sizeof(timestamp));
+
+    if (backend->enabled && backend->device_id[0] != '\0') {
+        backend_send_traffic(backend, window_stats, window_seconds, timestamp);
+    }
+
+    alert_count = anomaly_detector_check(window_stats, alerts, ANOMALY_MAX_ALERTS);
+    for (i = 0; i < alert_count; i++) {
+        const struct flow_entry *flow = flow_table_top(flows, protocol_for_alert(alerts[i].protocol));
+        logger_alert("%s", alerts[i].description);
+        if (backend->enabled && backend->device_id[0] != '\0') {
+            backend_send_alert(backend, &alerts[i], flow, window_seconds, timestamp);
+        }
+    }
+
+    if (backend->enabled && backend->device_id[0] != '\0') {
+        backend_send_heartbeat(backend);
+    }
+}
+
 static void log_stats_window(const struct traffic_stats *stats) {
     logger_info("[STATS] total_packets=%llu tcp=%llu udp=%llu total_bytes=%llu tcp_bytes=%llu udp_bytes=%llu",
                 (unsigned long long)stats->total_packets,
@@ -60,6 +104,8 @@ int main(int argc, char *argv[]) {
     int capture_fd = -1;
     unsigned char buffer[BUFFER_SIZE];
     struct traffic_stats window_stats;
+    static struct flow_table flows; 
+    struct backend_config backend;
     time_t window_start = 0;
 
     if (argc == 2 && strcmp(argv[1], "--help") == 0) {
@@ -86,8 +132,19 @@ int main(int argc, char *argv[]) {
     }
 
     traffic_stats_init(&window_stats);
+    flow_table_init(&flows);
     window_start = time(NULL);
     logger_info("openwrt-agent started");
+
+    backend_config_load(&backend);
+    if (backend.enabled) {
+        logger_info("[BACKEND] target http://%s:%d", backend.host, backend.port);
+        if (backend_register(&backend) != 0) {
+            logger_info("[BACKEND] registration failed; continuing in local-only mode");
+        }
+    } else {
+        logger_info("[BACKEND] disabled (set BACKEND_HOST to enable telemetry upload)");
+    }
 
     while (keep_running) {
         ssize_t bytes_read = packet_capture_receive(capture_fd, buffer, sizeof(buffer));
@@ -112,6 +169,7 @@ int main(int argc, char *argv[]) {
         }
 
         traffic_stats_add_packet(&window_stats, packet.protocol, packet.packet_size);
+        flow_table_add(&flows, &packet);
         logger_packet(packet.protocol == PROTO_TCP ? "TCP" : "UDP",
                       packet.src_ip,
                       packet.src_port,
@@ -122,8 +180,9 @@ int main(int argc, char *argv[]) {
         now = time(NULL);
         if ((now - window_start) >= STATS_WINDOW_SECONDS) {
             log_stats_window(&window_stats);
-            anomaly_detector_check(&window_stats);
+            flush_window(&backend, &window_stats, &flows, (int)(now - window_start), now);
             traffic_stats_reset(&window_stats);
+            flow_table_reset(&flows);
             window_start = now;
         }
     }

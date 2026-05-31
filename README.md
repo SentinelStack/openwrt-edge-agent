@@ -2,15 +2,20 @@
 
 `openwrt-c` is the OpenWrt router-side traffic processing agent for a bachelor thesis IDS/IPS project.
 
-The current focus is local processing on the OpenWrt device itself. Backend, AI, MISP, web dashboard, iOS app, CI/CD expansion, and Nexus integration are future extensions.
+The agent processes traffic locally on the OpenWrt device and uploads processed
+telemetry to the `ids-platform-backend` REST API. AI, MISP, web dashboard, iOS
+app, CI/CD expansion, and Nexus integration are future extensions.
 
 ## Current Features (Router-Side)
 - Raw packet capture with `AF_PACKET` + `SOCK_RAW`
 - Ethernet/IPv4/TCP/UDP parsing
 - Local TCP/UDP traffic processing directly on router
 - Local traffic statistics every 5 seconds
+- Per-flow (source/destination/port) top-talker tracking per window
 - Local anomaly detection with lightweight threshold rules
 - Local stdout alerts/logs
+- Telemetry upload to the `ids-platform-backend` REST API (device registration,
+  traffic windows, alerts with full source/destination, heartbeats)
 
 ## Target Environment
 - Router: Linksys WRT3200ACM
@@ -32,6 +37,14 @@ openwrt-c/
 │   ├── traffic_stats.h
 │   ├── anomaly_detector.c
 │   ├── anomaly_detector.h
+│   ├── flow_table.c
+│   ├── flow_table.h
+│   ├── http_client.c
+│   ├── http_client.h
+│   ├── backend_client.c
+│   ├── backend_client.h
+│   ├── iso_time.c
+│   ├── iso_time.h
 │   ├── logger.c
 │   └── logger.h
 ├── scripts/
@@ -95,6 +108,53 @@ Deploy copies binary using `scp -O` to:
 Then remote chmod:
 - `chmod +x /root/openwrt-agent`
 
+## Backend Integration
+
+When `BACKEND_HOST` is set, the agent uploads processed telemetry to the
+`ids-platform-backend` REST API. When it is unset, the agent runs in local-only
+mode (stdout logging, no HTTP). Networking failures never stop packet capture —
+the agent degrades to local-only mode and keeps running.
+
+### Configuration
+
+Add the backend variables to `config/router.env` (see `config/router.env.example`).
+`scripts/run.sh` forwards any that are set to the agent process on the router.
+
+| Variable          | Required | Default                 | Purpose                                             |
+| ----------------- | -------- | ----------------------- | --------------------------------------------------- |
+| `BACKEND_HOST`    | yes      | —                       | Backend host/IP. Enables uploads. Use the LAN IP of the backend machine, not `localhost`. |
+| `BACKEND_PORT`    | no       | `8080`                  | Backend port                                        |
+| `DEVICE_ID`       | no       | assigned by backend     | Pre-assigned device id; otherwise the backend issues one at registration |
+| `DEVICE_ID_FILE`  | no       | `/etc/openwrt-agent.id` | File the assigned `deviceId` is persisted to and reloaded from, giving a stable identity across restarts |
+| `DEVICE_NAME`     | no       | `OpenWrt Edge Agent`    | Human-readable device name                          |
+| `DEVICE_IP`       | no       | `192.168.1.1`           | Router IP reported to the backend                   |
+| `DEVICE_FIRMWARE` | no       | `OpenWrt 23.05.3`       | Firmware version string                             |
+| `DEVICE_MODEL`    | no       | `Linksys WRT3200ACM`    | Hardware model string                               |
+
+### What gets sent
+
+On startup the agent calls `POST /api/devices/register` and stores the returned
+`deviceId`, persisting it to `DEVICE_ID_FILE` so the next start reuses the same
+identity instead of registering a brand-new device. Then, once per stats window
+(every 5 seconds), it sends:
+
+- `POST /api/traffic/stats` — the aggregated traffic window
+- `POST /api/alerts` — one request per detected anomaly, including the
+  **source/destination IP and ports** of the busiest matching flow (top talker)
+  in that window, plus packet/byte counts and a description
+- `POST /api/devices/{deviceId}/heartbeat` — liveness signal
+
+Anomaly types map directly to the backend `AlertType` enum:
+
+| Condition                        | `type`                | `severity` | `protocol` |
+| -------------------------------- | --------------------- | ---------- | ---------- |
+| UDP packets over threshold       | `UDP_FLOOD_SUSPECTED` | `HIGH`     | `UDP`      |
+| TCP packets over threshold       | `TCP_SPIKE_SUSPECTED` | `MEDIUM`   | `TCP`      |
+| Total bytes over threshold       | `HIGH_TRAFFIC_VOLUME` | `MEDIUM`   | `UNKNOWN`  |
+
+The HTTP client is dependency-free (raw sockets, plain HTTP, no TLS) to match
+the rest of the agent and keep the OpenWrt binary small.
+
 ## Run
 Process TCP and UDP:
 ```sh
@@ -133,5 +193,11 @@ Packet logs:
 
 Anomaly alerts:
 ```text
-[ALERT] Possible UDP flood detected: udp_packets=230 in last 5 seconds
+[ALERT] Possible UDP flood detected: udp_packets=230 in window
+```
+
+Backend telemetry (when `BACKEND_HOST` is set):
+```text
+[INFO] [BACKEND] target http://192.168.1.100:8080
+[INFO] [BACKEND] device registered deviceId=7c9e6679-7425-40de-944b-e07fc1f90ae7
 ```

@@ -2,7 +2,6 @@
 set -eu
 
 if [ -f "./config/router.env" ]; then
-  # shellcheck disable=SC1091
   . "./config/router.env"
 fi
 
@@ -23,6 +22,16 @@ if [ "${#}" -eq 1 ]; then
   fi
 fi
 
+REMOTE_ENV=""
+for var in BACKEND_HOST BACKEND_PORT DEVICE_ID DEVICE_ID_FILE DEVICE_NAME DEVICE_IP DEVICE_FIRMWARE DEVICE_MODEL; do
+  eval "val=\${${var}:-}"
+  if [ -n "${val}" ]; then
+    REMOTE_ENV="${REMOTE_ENV}${var}='${val}' "
+  fi
+done
+
+REMOTE_CMD="${REMOTE_ENV}/root/openwrt-agent ${ARGS}"
+
 if [ "${ROUTER_AUTH_MODE:-key}" = "password" ]; then
   if ! command -v sshpass >/dev/null 2>&1; then
     echo "sshpass is required for ROUTER_AUTH_MODE=password." >&2
@@ -33,7 +42,7 @@ if [ "${ROUTER_AUTH_MODE:-key}" = "password" ]; then
     echo "ROUTER_PASSWORD is not set." >&2
     exit 1
   fi
-  sshpass -p "${ROUTER_PASSWORD}" ssh "${ROUTER}" "/root/openwrt-agent ${ARGS}"
+  sshpass -p "${ROUTER_PASSWORD}" ssh "${ROUTER}" "${REMOTE_CMD}"
 else
-  ssh "${ROUTER}" "/root/openwrt-agent ${ARGS}"
+  ssh "${ROUTER}" "${REMOTE_CMD}"
 fi
