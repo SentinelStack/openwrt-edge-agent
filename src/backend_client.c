@@ -1,11 +1,13 @@
 #include "backend_client.h"
 
 #include "http_client.h"
+#include "iso_time.h"
 #include "logger.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define JSON_BODY_MAX 1024
 #define RESP_BODY_MAX 2048
@@ -97,7 +99,10 @@ static void json_escape(const char *in, char *out, size_t size) {
             out[o++] = '\\';
             out[o++] = 'n';
         } else if ((unsigned char)c < 0x20) {
-            continue; 
+            if (o + 6 < size) {
+                snprintf(out + o, 7, "\\u%04x", (unsigned char)c);
+                o += 6;
+            }
         } else {
             out[o++] = c;
         }
@@ -240,14 +245,18 @@ int backend_register(struct backend_config *cfg) {
 
 int backend_send_heartbeat(const struct backend_config *cfg) {
     char path[128];
+    char body[64];
+    char timestamp[32];
     int status = 0;
 
     if (cfg == NULL || !cfg->enabled || cfg->device_id[0] == '\0') {
         return -1;
     }
 
+    iso_time_format(time(NULL), timestamp, sizeof(timestamp));
+    snprintf(body, sizeof(body), "{\"seenAt\":\"%s\"}", timestamp);
     snprintf(path, sizeof(path), "/api/devices/%s/heartbeat", cfg->device_id);
-    status = http_post_json(cfg->host, cfg->port, path, "{}", NULL, 0);
+    status = http_post_json(cfg->host, cfg->port, path, body, NULL, 0);
     return http_ok(status) ? 0 : -1;
 }
 

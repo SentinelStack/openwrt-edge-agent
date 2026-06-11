@@ -1,5 +1,7 @@
 #include "flow_table.h"
 
+#include "logger.h"
+
 #include <string.h>
 
 void flow_table_init(struct flow_table *table) {
@@ -34,7 +36,11 @@ void flow_table_add(struct flow_table *table, const struct parsed_packet *packet
     }
 
     if (table->count >= FLOW_TABLE_CAPACITY) {
-        return; 
+        if (!table->overflow_logged) {
+            logger_info("flow table full (%d entries); new flows dropped until next window", FLOW_TABLE_CAPACITY);
+            table->overflow_logged = 1;
+        }
+        return;
     }
 
     slot = &table->entries[table->count];

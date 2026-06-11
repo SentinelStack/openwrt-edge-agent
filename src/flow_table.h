@@ -23,6 +23,7 @@ struct flow_entry {
 struct flow_table {
     struct flow_entry entries[FLOW_TABLE_CAPACITY];
     size_t count;
+    int overflow_logged;
 };
 
 void flow_table_init(struct flow_table *table);
