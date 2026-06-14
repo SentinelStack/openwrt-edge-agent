@@ -8,9 +8,10 @@
 
 struct backend_config {
     int enabled;
+    char scheme[8]; /* "https" (default) or "http" */
     char host[128];
     int port;
-    char device_id[64]; 
+    char device_id[64];
     char device_id_path[256]; 
     char device_name[64];
     char device_ip[16];

@@ -165,10 +165,17 @@ int backend_config_load(struct backend_config *cfg) {
     }
     strncpy(cfg->host, host, sizeof(cfg->host) - 1);
 
+    /* Transport for the ruleset pull: https by default (cloud forces TLS). */
+    copy_env("BACKEND_SCHEME", cfg->scheme, sizeof(cfg->scheme), "https");
+
     port = getenv("BACKEND_PORT");
-    cfg->port = (port != NULL && port[0] != '\0') ? atoi(port) : 8080;
+    if (port != NULL && port[0] != '\0') {
+        cfg->port = atoi(port);
+    } else {
+        cfg->port = (strcmp(cfg->scheme, "https") == 0) ? 443 : 8080;
+    }
     if (cfg->port <= 0) {
-        cfg->port = 8080;
+        cfg->port = (strcmp(cfg->scheme, "https") == 0) ? 443 : 8080;
     }
 
     copy_env("DEVICE_ID", cfg->device_id, sizeof(cfg->device_id), "");

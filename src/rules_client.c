@@ -73,7 +73,8 @@ static void extract_json_string(const char *json, const char *key, char *out, si
 }
 
 int rules_client_fetch(const struct backend_config *cfg, struct agent_ruleset *out) {
-    char path[256];
+    char url[384];
+    const char *scheme = NULL;
     char *body = NULL;
     int status = -1;
 
@@ -83,7 +84,9 @@ int rules_client_fetch(const struct backend_config *cfg, struct agent_ruleset *o
 
     memset(out, 0, sizeof(*out));
 
-    snprintf(path, sizeof(path), "/api/devices/%s/ruleset", cfg->device_id);
+    scheme = cfg->scheme[0] != '\0' ? cfg->scheme : "https";
+    snprintf(url, sizeof(url), "%s://%s:%d/api/devices/%s/ruleset",
+             scheme, cfg->host, cfg->port, cfg->device_id);
 
     body = malloc(RULESET_RESP_MAX);
     if (body == NULL) {
@@ -91,7 +94,7 @@ int rules_client_fetch(const struct backend_config *cfg, struct agent_ruleset *o
     }
     body[0] = '\0';
 
-    status = http_get(cfg->host, cfg->port, path, body, RULESET_RESP_MAX);
+    status = http_get(url, body, RULESET_RESP_MAX);
     if (status < 200 || status >= 300) {
         logger_info("[RULES] ruleset fetch failed (status=%d)", status);
         free(body);

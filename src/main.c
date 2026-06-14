@@ -159,10 +159,10 @@ int main(int argc, char *argv[]) {
         logger_info("[BACKEND] target http://%s:%d", backend.host, backend.port);
         if (backend_register(&backend) != 0) {
             logger_info("[BACKEND] registration failed; continuing in local-only mode");
-        } else {
-            // Pull the detection ruleset assigned to this router and apply it.
-            sync_ruleset(&backend);
         }
+        // Pull the detection ruleset (TLS GET) and apply it — independent of
+        // registration, so it works even where register (plain POST) can't.
+        sync_ruleset(&backend);
     } else {
         logger_info("[BACKEND] disabled (set BACKEND_HOST to enable telemetry upload)");
     }
