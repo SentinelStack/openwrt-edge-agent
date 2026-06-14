@@ -8,6 +8,21 @@
 #define TCP_PACKET_THRESHOLD_DEFAULT 150
 #define BYTE_THRESHOLD_DEFAULT 500000
 
+/* Thresholds pushed from the backend ruleset (0 = not set). When non-zero
+   they win over both the ANOMALY_* env vars and the compiled defaults — this
+   is what makes a rule edited in the backend change router behaviour. */
+static uint64_t backend_udp_threshold = 0;
+static uint64_t backend_tcp_threshold = 0;
+static uint64_t backend_byte_threshold = 0;
+
+void anomaly_detector_set_thresholds(uint64_t udp_packets,
+                                     uint64_t tcp_packets,
+                                     uint64_t bytes) {
+    backend_udp_threshold = udp_packets;
+    backend_tcp_threshold = tcp_packets;
+    backend_byte_threshold = bytes;
+}
+
 static uint64_t env_threshold(const char *name, uint64_t fallback) {
     const char *value = getenv(name);
     char *end = NULL;
@@ -24,14 +39,23 @@ static uint64_t env_threshold(const char *name, uint64_t fallback) {
 }
 
 static uint64_t udp_packet_threshold(void) {
+    if (backend_udp_threshold > 0) {
+        return backend_udp_threshold;
+    }
     return env_threshold("ANOMALY_UDP_PACKET_THRESHOLD", UDP_PACKET_THRESHOLD_DEFAULT);
 }
 
 static uint64_t tcp_packet_threshold(void) {
+    if (backend_tcp_threshold > 0) {
+        return backend_tcp_threshold;
+    }
     return env_threshold("ANOMALY_TCP_PACKET_THRESHOLD", TCP_PACKET_THRESHOLD_DEFAULT);
 }
 
 static uint64_t byte_threshold(void) {
+    if (backend_byte_threshold > 0) {
+        return backend_byte_threshold;
+    }
     return env_threshold("ANOMALY_BYTE_THRESHOLD", BYTE_THRESHOLD_DEFAULT);
 }
 

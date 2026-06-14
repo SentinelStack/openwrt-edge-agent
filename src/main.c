@@ -5,6 +5,7 @@
 #include "logger.h"
 #include "packet_capture.h"
 #include "packet_parser.h"
+#include "rules_client.h"
 #include "traffic_stats.h"
 
 #include <errno.h>
@@ -17,6 +18,7 @@
 
 #define BUFFER_SIZE 65536
 #define STATS_WINDOW_SECONDS 5
+#define RULES_SYNC_SECONDS 60
 
 enum filter_mode {
     FILTER_BOTH = 0,
@@ -89,6 +91,21 @@ static void flush_window(struct backend_config *backend,
     }
 }
 
+/* Pull the device's detection ruleset from the backend and apply its
+   thresholds to the local anomaly detector. */
+static void sync_ruleset(const struct backend_config *backend) {
+    struct agent_ruleset ruleset;
+
+    if (!backend->enabled || backend->device_id[0] == '\0') {
+        return;
+    }
+    if (rules_client_fetch(backend, &ruleset) == 0) {
+        anomaly_detector_set_thresholds(ruleset.udp_packet_threshold,
+                                        ruleset.tcp_packet_threshold,
+                                        ruleset.byte_threshold);
+    }
+}
+
 static void log_stats_window(const struct traffic_stats *stats) {
     logger_info("[STATS] total_packets=%llu tcp=%llu udp=%llu total_bytes=%llu tcp_bytes=%llu udp_bytes=%llu",
                 (unsigned long long)stats->total_packets,
@@ -107,6 +124,7 @@ int main(int argc, char *argv[]) {
     static struct flow_table flows; 
     struct backend_config backend;
     time_t window_start = 0;
+    time_t last_rules_sync = 0;
 
     if (argc == 2 && strcmp(argv[1], "--help") == 0) {
         print_usage(argv[0]);
@@ -141,10 +159,14 @@ int main(int argc, char *argv[]) {
         logger_info("[BACKEND] target http://%s:%d", backend.host, backend.port);
         if (backend_register(&backend) != 0) {
             logger_info("[BACKEND] registration failed; continuing in local-only mode");
+        } else {
+            // Pull the detection ruleset assigned to this router and apply it.
+            sync_ruleset(&backend);
         }
     } else {
         logger_info("[BACKEND] disabled (set BACKEND_HOST to enable telemetry upload)");
     }
+    last_rules_sync = time(NULL);
 
     while (keep_running) {
         ssize_t bytes_read = packet_capture_receive(capture_fd, buffer, sizeof(buffer));
@@ -184,6 +206,12 @@ int main(int argc, char *argv[]) {
             traffic_stats_reset(&window_stats);
             flow_table_reset(&flows);
             window_start = now;
+
+            // Periodically re-pull the ruleset so backend edits reach the router.
+            if ((now - last_rules_sync) >= RULES_SYNC_SECONDS) {
+                sync_ruleset(&backend);
+                last_rules_sync = now;
+            }
         }
     }
 

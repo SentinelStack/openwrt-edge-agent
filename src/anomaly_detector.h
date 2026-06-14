@@ -21,4 +21,11 @@ struct anomaly_alert {
 int anomaly_detector_check(const struct traffic_stats *window_stats,
                            struct anomaly_alert *alerts_out, int max_alerts);
 
+/* Apply detector thresholds pulled from the backend ruleset. A value of 0
+   leaves that dimension on its env/compiled default. Backend values take
+   precedence over the ANOMALY_* environment variables. */
+void anomaly_detector_set_thresholds(uint64_t udp_packets,
+                                     uint64_t tcp_packets,
+                                     uint64_t bytes);
+
 #endif
