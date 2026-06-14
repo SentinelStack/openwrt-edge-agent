@@ -4,7 +4,9 @@
 #include <stddef.h>
 
 
-int http_post_json(const char *host, int port, const char *path,
+/* POST a JSON body. `scheme` is "https" (in-process mbedTLS) or "http"
+   (plain socket). Returns the HTTP status code or -1 on transport error. */
+int http_post_json(const char *scheme, const char *host, int port, const char *path,
                    const char *body, char *resp_body, size_t resp_size);
 
 /* HTTP(S) GET via the system's TLS-capable client (uclient-fetch). Pass a full

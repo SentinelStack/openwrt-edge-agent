@@ -9,10 +9,17 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <mbedtls/ctr_drbg.h>
+#include <mbedtls/entropy.h>
+#include <mbedtls/net_sockets.h>
+#include <mbedtls/ssl.h>
+#include <mbedtls/x509_crt.h>
+
 #define HTTP_TIMEOUT_SECONDS 3
 #define HTTP_REQUEST_MAX 4096
 #define HTTP_RESPONSE_MAX 4096
 #define HTTP_GET_RESPONSE_MAX 8192
+#define CA_BUNDLE_PATH "/etc/ssl/certs/ca-certificates.crt"
 
 static int send_all(int fd, const char *data, size_t len) {
     size_t sent = 0;
@@ -77,8 +84,8 @@ static int connect_to(const char *host, int port) {
     return fd;
 }
 
-int http_post_json(const char *host, int port, const char *path,
-                   const char *body, char *resp_body, size_t resp_size) {
+static int http_post_plain(const char *host, int port, const char *path,
+                           const char *body, char *resp_body, size_t resp_size) {
     char request[HTTP_REQUEST_MAX];
     char response[HTTP_RESPONSE_MAX];
     int fd = -1;
@@ -144,6 +151,147 @@ int http_post_json(const char *host, int port, const char *path,
     }
 
     return status;
+}
+
+/* In-process HTTPS POST via mbedTLS — gives the agent a real TLS client so it
+   can register and upload telemetry directly to the cloud backend. */
+static int http_post_tls(const char *host, int port, const char *path,
+                         const char *body, char *resp_body, size_t resp_size) {
+    char request[HTTP_REQUEST_MAX];
+    char response[HTTP_RESPONSE_MAX];
+    char port_str[8];
+    int request_len = 0;
+    int status = -1;
+    int ret = 0;
+    int ca_ok = -1;
+    size_t total = 0;
+    size_t written = 0;
+    const char *body_start = NULL;
+
+    mbedtls_net_context net;
+    mbedtls_ssl_context ssl;
+    mbedtls_ssl_config conf;
+    mbedtls_entropy_context entropy;
+    mbedtls_ctr_drbg_context ctr_drbg;
+    mbedtls_x509_crt cacert;
+
+    if (host == NULL || path == NULL || body == NULL) {
+        return -1;
+    }
+    if (resp_body != NULL && resp_size > 0) {
+        resp_body[0] = '\0';
+    }
+
+    request_len = snprintf(request, sizeof(request),
+                           "POST %s HTTP/1.1\r\n"
+                           "Host: %s\r\n"
+                           "Content-Type: application/json\r\n"
+                           "Content-Length: %zu\r\n"
+                           "Connection: close\r\n"
+                           "\r\n"
+                           "%s",
+                           path, host, strlen(body), body);
+    if (request_len < 0 || (size_t)request_len >= sizeof(request)) {
+        return -1;
+    }
+
+    mbedtls_net_init(&net);
+    mbedtls_ssl_init(&ssl);
+    mbedtls_ssl_config_init(&conf);
+    mbedtls_entropy_init(&entropy);
+    mbedtls_ctr_drbg_init(&ctr_drbg);
+    mbedtls_x509_crt_init(&cacert);
+
+    if (mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy, NULL, 0) != 0) {
+        goto cleanup;
+    }
+
+    /* Verify the server cert against the system CA bundle when present. */
+    ca_ok = mbedtls_x509_crt_parse_file(&cacert, CA_BUNDLE_PATH);
+
+    snprintf(port_str, sizeof(port_str), "%d", port);
+    if (mbedtls_net_connect(&net, host, port_str, MBEDTLS_NET_PROTO_TCP) != 0) {
+        goto cleanup;
+    }
+    if (mbedtls_ssl_config_defaults(&conf, MBEDTLS_SSL_IS_CLIENT,
+                                    MBEDTLS_SSL_TRANSPORT_STREAM,
+                                    MBEDTLS_SSL_PRESET_DEFAULT) != 0) {
+        goto cleanup;
+    }
+    mbedtls_ssl_conf_authmode(&conf,
+                              ca_ok == 0 ? MBEDTLS_SSL_VERIFY_REQUIRED : MBEDTLS_SSL_VERIFY_OPTIONAL);
+    mbedtls_ssl_conf_ca_chain(&conf, &cacert, NULL);
+    mbedtls_ssl_conf_rng(&conf, mbedtls_ctr_drbg_random, &ctr_drbg);
+
+    if (mbedtls_ssl_setup(&ssl, &conf) != 0) {
+        goto cleanup;
+    }
+    if (mbedtls_ssl_set_hostname(&ssl, host) != 0) {
+        goto cleanup;
+    }
+    mbedtls_ssl_set_bio(&ssl, &net, mbedtls_net_send, mbedtls_net_recv, NULL);
+
+    while ((ret = mbedtls_ssl_handshake(&ssl)) != 0) {
+        if (ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
+            goto cleanup;
+        }
+    }
+
+    while (written < (size_t)request_len) {
+        ret = mbedtls_ssl_write(&ssl, (const unsigned char *)request + written,
+                                (size_t)request_len - written);
+        if (ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
+            continue;
+        }
+        if (ret <= 0) {
+            goto cleanup;
+        }
+        written += (size_t)ret;
+    }
+
+    while (total < sizeof(response) - 1) {
+        ret = mbedtls_ssl_read(&ssl, (unsigned char *)response + total,
+                               sizeof(response) - 1 - total);
+        if (ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
+            continue;
+        }
+        if (ret <= 0) {
+            break; /* close_notify, EOF or error */
+        }
+        total += (size_t)ret;
+    }
+    response[total] = '\0';
+
+    if (total > 0) {
+        status = parse_status_code(response);
+        if (resp_body != NULL && resp_size > 0) {
+            body_start = strstr(response, "\r\n\r\n");
+            if (body_start != NULL) {
+                body_start += 4;
+                strncpy(resp_body, body_start, resp_size - 1);
+                resp_body[resp_size - 1] = '\0';
+            }
+        }
+    }
+
+    mbedtls_ssl_close_notify(&ssl);
+
+cleanup:
+    mbedtls_x509_crt_free(&cacert);
+    mbedtls_ssl_free(&ssl);
+    mbedtls_ssl_config_free(&conf);
+    mbedtls_ctr_drbg_free(&ctr_drbg);
+    mbedtls_entropy_free(&entropy);
+    mbedtls_net_free(&net);
+    return status;
+}
+
+int http_post_json(const char *scheme, const char *host, int port, const char *path,
+                   const char *body, char *resp_body, size_t resp_size) {
+    if (scheme != NULL && strcmp(scheme, "https") == 0) {
+        return http_post_tls(host, port, path, body, resp_body, resp_size);
+    }
+    return http_post_plain(host, port, path, body, resp_body, resp_size);
 }
 
 /* Only these characters are allowed in a URL passed to the shell via popen,

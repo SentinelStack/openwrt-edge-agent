@@ -228,7 +228,7 @@ int backend_register(struct backend_config *cfg) {
                  name_esc, cfg->device_ip, fw_esc, model_esc);
     }
 
-    status = http_post_json(cfg->host, cfg->port, "/api/devices/register", body, resp, sizeof(resp));
+    status = http_post_json(cfg->scheme, cfg->host, cfg->port, "/api/devices/register", body, resp, sizeof(resp));
     if (!http_ok(status)) {
         logger_info("[BACKEND] device registration failed (status=%d)", status);
         return -1;
@@ -263,7 +263,7 @@ int backend_send_heartbeat(const struct backend_config *cfg) {
     iso_time_format(time(NULL), timestamp, sizeof(timestamp));
     snprintf(body, sizeof(body), "{\"seenAt\":\"%s\"}", timestamp);
     snprintf(path, sizeof(path), "/api/devices/%s/heartbeat", cfg->device_id);
-    status = http_post_json(cfg->host, cfg->port, path, body, NULL, 0);
+    status = http_post_json(cfg->scheme, cfg->host, cfg->port, path, body, NULL, 0);
     return http_ok(status) ? 0 : -1;
 }
 
@@ -292,7 +292,7 @@ int backend_send_traffic(const struct backend_config *cfg,
              (unsigned long long)stats->udp_bytes,
              window_seconds);
 
-    status = http_post_json(cfg->host, cfg->port, "/api/traffic/stats", body, NULL, 0);
+    status = http_post_json(cfg->scheme, cfg->host, cfg->port, "/api/traffic/stats", body, NULL, 0);
     return http_ok(status) ? 0 : -1;
 }
 
@@ -335,6 +335,6 @@ int backend_send_alert(const struct backend_config *cfg,
              (unsigned long long)alert->bytes_count,
              window_seconds, desc_esc);
 
-    status = http_post_json(cfg->host, cfg->port, "/api/alerts", body, NULL, 0);
+    status = http_post_json(cfg->scheme, cfg->host, cfg->port, "/api/alerts", body, NULL, 0);
     return http_ok(status) ? 0 : -1;
 }

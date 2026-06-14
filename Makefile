@@ -10,9 +10,13 @@ SRCS := src/main.c src/packet_capture.c src/packet_parser.c src/traffic_stats.c 
 docker-build:
 	docker build --platform linux/amd64 -t $(IMAGE_NAME) -f Dockerfile .
 
+MBEDTLS ?= /opt/mbedtls
+
 build:
 	docker run --rm --platform linux/amd64 -v "$(PWD):/work" -w /work $(IMAGE_NAME) \
-		arm-openwrt-linux-muslgnueabi-gcc -O2 -Wall -Wextra -o $(BIN) $(SRCS)
+		arm-openwrt-linux-muslgnueabi-gcc -O2 -Wall -Wextra \
+		-I$(MBEDTLS)/include -o $(BIN) $(SRCS) \
+		-L$(MBEDTLS)/lib -lmbedtls -lmbedx509 -lmbedcrypto
 
 check:
 	file $(BIN)
