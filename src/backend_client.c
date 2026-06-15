@@ -250,18 +250,100 @@ int backend_register(struct backend_config *cfg) {
     return 0;
 }
 
+/* CPU utilisation since the previous call, from /proc/stat (0-100, -1 on error). */
+static int read_cpu_percent(void) {
+    static unsigned long long prev_total = 0;
+    static unsigned long long prev_idle = 0;
+    FILE *fp = NULL;
+    char label[16];
+    unsigned long long user = 0, nice = 0, sys = 0, idle = 0, iowait = 0;
+    unsigned long long irq = 0, softirq = 0, steal = 0;
+    unsigned long long total, idle_all, dt, di;
+    int pct;
+
+    fp = fopen("/proc/stat", "r");
+    if (fp == NULL) {
+        return -1;
+    }
+    if (fscanf(fp, "%15s %llu %llu %llu %llu %llu %llu %llu %llu",
+               label, &user, &nice, &sys, &idle, &iowait, &irq, &softirq, &steal) < 5) {
+        fclose(fp);
+        return -1;
+    }
+    fclose(fp);
+
+    idle_all = idle + iowait;
+    total = user + nice + sys + idle + iowait + irq + softirq + steal;
+    if (prev_total == 0 || total <= prev_total) {
+        dt = total;       /* first sample -> cumulative average since boot */
+        di = idle_all;
+    } else {
+        dt = total - prev_total;
+        di = idle_all - prev_idle;
+    }
+    prev_total = total;
+    prev_idle = idle_all;
+    if (dt == 0) {
+        return -1;
+    }
+    pct = (int)(100 - (di * 100) / dt);
+    if (pct < 0) {
+        pct = 0;
+    }
+    if (pct > 100) {
+        pct = 100;
+    }
+    return pct;
+}
+
+/* Used memory percentage from /proc/meminfo (0-100, -1 on error). */
+static int read_mem_percent(void) {
+    FILE *fp = NULL;
+    char line[128];
+    unsigned long long total = 0, avail = 0, v;
+
+    fp = fopen("/proc/meminfo", "r");
+    if (fp == NULL) {
+        return -1;
+    }
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        if (sscanf(line, "MemTotal: %llu kB", &v) == 1) {
+            total = v;
+        } else if (sscanf(line, "MemAvailable: %llu kB", &v) == 1) {
+            avail = v;
+            break;
+        }
+    }
+    fclose(fp);
+    if (total == 0) {
+        return -1;
+    }
+    if (avail > total) {
+        avail = total;
+    }
+    return (int)(100 - (avail * 100) / total);
+}
+
 int backend_send_heartbeat(const struct backend_config *cfg) {
     char path[128];
-    char body[64];
+    char body[128];
     char timestamp[32];
     int status = 0;
+    int cpu, mem;
 
     if (cfg == NULL || !cfg->enabled || cfg->device_id[0] == '\0') {
         return -1;
     }
 
     iso_time_format(time(NULL), timestamp, sizeof(timestamp));
-    snprintf(body, sizeof(body), "{\"seenAt\":\"%s\"}", timestamp);
+    cpu = read_cpu_percent();
+    mem = read_mem_percent();
+    if (cpu >= 0 && mem >= 0) {
+        snprintf(body, sizeof(body),
+                 "{\"seenAt\":\"%s\",\"cpuPercent\":%d,\"memPercent\":%d}", timestamp, cpu, mem);
+    } else {
+        snprintf(body, sizeof(body), "{\"seenAt\":\"%s\"}", timestamp);
+    }
     snprintf(path, sizeof(path), "/api/devices/%s/heartbeat", cfg->device_id);
     status = http_post_json(cfg->scheme, cfg->host, cfg->port, path, body, NULL, 0);
     return http_ok(status) ? 0 : -1;
