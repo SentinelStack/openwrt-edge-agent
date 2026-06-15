@@ -17,6 +17,7 @@ struct backend_config {
     char device_ip[16];
     char firmware[64];
     char model[64];
+    char api_key[80]; /* presented to the backend (X-API-Key / apiKey query) */
 };
 
 

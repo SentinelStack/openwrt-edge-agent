@@ -84,10 +84,21 @@ static int connect_to(const char *host, int port) {
     return fd;
 }
 
+/* Build "X-API-Key: <key>\r\n" into out, or an empty string if no key. */
+static void api_key_header(const char *api_key, char *out, size_t size) {
+    if (api_key != NULL && api_key[0] != '\0') {
+        snprintf(out, size, "X-API-Key: %s\r\n", api_key);
+    } else {
+        out[0] = '\0';
+    }
+}
+
 static int http_post_plain(const char *host, int port, const char *path,
-                           const char *body, char *resp_body, size_t resp_size) {
+                           const char *body, const char *api_key,
+                           char *resp_body, size_t resp_size) {
     char request[HTTP_REQUEST_MAX];
     char response[HTTP_RESPONSE_MAX];
+    char key_hdr[96];
     int fd = -1;
     int request_len = 0;
     int status = -1;
@@ -102,15 +113,17 @@ static int http_post_plain(const char *host, int port, const char *path,
         resp_body[0] = '\0';
     }
 
+    api_key_header(api_key, key_hdr, sizeof(key_hdr));
     request_len = snprintf(request, sizeof(request),
                            "POST %s HTTP/1.1\r\n"
                            "Host: %s:%d\r\n"
                            "Content-Type: application/json\r\n"
+                           "%s"
                            "Content-Length: %zu\r\n"
                            "Connection: close\r\n"
                            "\r\n"
                            "%s",
-                           path, host, port, strlen(body), body);
+                           path, host, port, key_hdr, strlen(body), body);
     if (request_len < 0 || (size_t)request_len >= sizeof(request)) {
         return -1;
     }
@@ -156,10 +169,12 @@ static int http_post_plain(const char *host, int port, const char *path,
 /* In-process HTTPS POST via mbedTLS — gives the agent a real TLS client so it
    can register and upload telemetry directly to the cloud backend. */
 static int http_post_tls(const char *host, int port, const char *path,
-                         const char *body, char *resp_body, size_t resp_size) {
+                         const char *body, const char *api_key,
+                         char *resp_body, size_t resp_size) {
     char request[HTTP_REQUEST_MAX];
     char response[HTTP_RESPONSE_MAX];
     char port_str[8];
+    char key_hdr[96];
     int request_len = 0;
     int status = -1;
     int ret = 0;
@@ -182,15 +197,17 @@ static int http_post_tls(const char *host, int port, const char *path,
         resp_body[0] = '\0';
     }
 
+    api_key_header(api_key, key_hdr, sizeof(key_hdr));
     request_len = snprintf(request, sizeof(request),
                            "POST %s HTTP/1.1\r\n"
                            "Host: %s\r\n"
                            "Content-Type: application/json\r\n"
+                           "%s"
                            "Content-Length: %zu\r\n"
                            "Connection: close\r\n"
                            "\r\n"
                            "%s",
-                           path, host, strlen(body), body);
+                           path, host, key_hdr, strlen(body), body);
     if (request_len < 0 || (size_t)request_len >= sizeof(request)) {
         return -1;
     }
@@ -287,11 +304,11 @@ cleanup:
 }
 
 int http_post_json(const char *scheme, const char *host, int port, const char *path,
-                   const char *body, char *resp_body, size_t resp_size) {
+                   const char *body, const char *api_key, char *resp_body, size_t resp_size) {
     if (scheme != NULL && strcmp(scheme, "https") == 0) {
-        return http_post_tls(host, port, path, body, resp_body, resp_size);
+        return http_post_tls(host, port, path, body, api_key, resp_body, resp_size);
     }
-    return http_post_plain(host, port, path, body, resp_body, resp_size);
+    return http_post_plain(host, port, path, body, api_key, resp_body, resp_size);
 }
 
 /* Only these characters are allowed in a URL passed to the shell via popen,

@@ -85,8 +85,14 @@ int rules_client_fetch(const struct backend_config *cfg, struct agent_ruleset *o
     memset(out, 0, sizeof(*out));
 
     scheme = cfg->scheme[0] != '\0' ? cfg->scheme : "https";
-    snprintf(url, sizeof(url), "%s://%s:%d/api/devices/%s/ruleset",
-             scheme, cfg->host, cfg->port, cfg->device_id);
+    /* uclient-fetch can't set headers, so the API key rides as a query param. */
+    if (cfg->api_key[0] != '\0') {
+        snprintf(url, sizeof(url), "%s://%s:%d/api/devices/%s/ruleset?apiKey=%s",
+                 scheme, cfg->host, cfg->port, cfg->device_id, cfg->api_key);
+    } else {
+        snprintf(url, sizeof(url), "%s://%s:%d/api/devices/%s/ruleset",
+                 scheme, cfg->host, cfg->port, cfg->device_id);
+    }
 
     body = malloc(RULESET_RESP_MAX);
     if (body == NULL) {

@@ -184,6 +184,7 @@ int backend_config_load(struct backend_config *cfg) {
     copy_env("DEVICE_IP", cfg->device_ip, sizeof(cfg->device_ip), "192.168.1.1");
     copy_env("DEVICE_FIRMWARE", cfg->firmware, sizeof(cfg->firmware), "OpenWrt 23.05.3");
     copy_env("DEVICE_MODEL", cfg->model, sizeof(cfg->model), "Linksys WRT3200ACM");
+    copy_env("AGENT_API_KEY", cfg->api_key, sizeof(cfg->api_key), "edge-agent-7f3c1a9e5b2d4f80");
 
     
     if (cfg->device_id[0] == '\0') {
@@ -228,7 +229,7 @@ int backend_register(struct backend_config *cfg) {
                  name_esc, cfg->device_ip, fw_esc, model_esc);
     }
 
-    status = http_post_json(cfg->scheme, cfg->host, cfg->port, "/api/devices/register", body, resp, sizeof(resp));
+    status = http_post_json(cfg->scheme, cfg->host, cfg->port, "/api/devices/register", body, cfg->api_key, resp, sizeof(resp));
     if (!http_ok(status)) {
         logger_info("[BACKEND] device registration failed (status=%d)", status);
         return -1;
@@ -345,7 +346,7 @@ int backend_send_heartbeat(const struct backend_config *cfg) {
         snprintf(body, sizeof(body), "{\"seenAt\":\"%s\"}", timestamp);
     }
     snprintf(path, sizeof(path), "/api/devices/%s/heartbeat", cfg->device_id);
-    status = http_post_json(cfg->scheme, cfg->host, cfg->port, path, body, NULL, 0);
+    status = http_post_json(cfg->scheme, cfg->host, cfg->port, path, body, cfg->api_key, NULL, 0);
     return http_ok(status) ? 0 : -1;
 }
 
@@ -374,7 +375,7 @@ int backend_send_traffic(const struct backend_config *cfg,
              (unsigned long long)stats->udp_bytes,
              window_seconds);
 
-    status = http_post_json(cfg->scheme, cfg->host, cfg->port, "/api/traffic/stats", body, NULL, 0);
+    status = http_post_json(cfg->scheme, cfg->host, cfg->port, "/api/traffic/stats", body, cfg->api_key, NULL, 0);
     return http_ok(status) ? 0 : -1;
 }
 
@@ -417,6 +418,6 @@ int backend_send_alert(const struct backend_config *cfg,
              (unsigned long long)alert->bytes_count,
              window_seconds, desc_esc);
 
-    status = http_post_json(cfg->scheme, cfg->host, cfg->port, "/api/alerts", body, NULL, 0);
+    status = http_post_json(cfg->scheme, cfg->host, cfg->port, "/api/alerts", body, cfg->api_key, NULL, 0);
     return http_ok(status) ? 0 : -1;
 }
