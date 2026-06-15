@@ -1,0 +1,39 @@
+#!/bin/sh /etc/rc.common
+# OpenWrt procd init script for the Sentinel edge agent.
+# Install: copy to /etc/init.d/sentinel-agent, chmod +x, then:
+#   /etc/init.d/sentinel-agent enable
+#   /etc/init.d/sentinel-agent start
+# Logs go to the system log: `logread -e openwrt-agent`.
+
+START=99
+STOP=10
+USE_PROCD=1
+
+PROG=/root/openwrt-agent
+
+# Backend connection (HTTPS to the cloud gateway by default). Override by
+# editing these or exporting them in /etc/sentinel-agent.env.
+BACKEND_HOST="${BACKEND_HOST:-qa-api.puk3p.online}"
+BACKEND_SCHEME="${BACKEND_SCHEME:-https}"
+BACKEND_PORT="${BACKEND_PORT:-443}"
+DEVICE_ID="${DEVICE_ID:-edge-router-01}"
+
+start_service() {
+    [ -f /etc/sentinel-agent.env ] && . /etc/sentinel-agent.env
+
+    procd_open_instance
+    procd_set_param command "$PROG"
+    procd_set_param env \
+        BACKEND_HOST="$BACKEND_HOST" \
+        BACKEND_SCHEME="$BACKEND_SCHEME" \
+        BACKEND_PORT="$BACKEND_PORT" \
+        DEVICE_ID="$DEVICE_ID"
+    procd_set_param respawn          # restart if it ever exits
+    procd_set_param stdout 1         # forward stdout/stderr to syslog
+    procd_set_param stderr 1
+    procd_close_instance
+}
+
+stop_service() {
+    :
+}
