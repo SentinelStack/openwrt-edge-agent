@@ -1,0 +1,29 @@
+#ifndef UPLOADER_H
+#define UPLOADER_H
+
+#include "anomaly_detector.h"
+#include "backend_client.h"
+#include "flow_table.h"
+#include "traffic_stats.h"
+
+struct upload_job {
+    struct traffic_stats stats;
+    int window_seconds;
+    char timestamp[32];
+
+    int alert_count;
+    struct anomaly_alert alerts[ANOMALY_MAX_ALERTS];
+    struct flow_entry alert_flow[ANOMALY_MAX_ALERTS];
+    int alert_has_flow[ANOMALY_MAX_ALERTS];
+
+    int send_heartbeat;
+    int sync_ruleset;
+};
+
+int uploader_start(const struct backend_config *backend);
+
+void uploader_submit(const struct upload_job *job);
+
+void uploader_stop(void);
+
+#endif

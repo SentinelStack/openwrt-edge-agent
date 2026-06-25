@@ -8,6 +8,7 @@
 #include "packet_window.h"
 #include "rules_client.h"
 #include "traffic_stats.h"
+#include "uploader.h"
 
 #include <errno.h>
 #include <signal.h>
@@ -63,33 +64,35 @@ static uint8_t protocol_for_alert(const char *protocol) {
     return 0;
 }
 
-static void flush_window(struct backend_config *backend,
-                         const struct traffic_stats *window_stats,
+static void flush_window(const struct traffic_stats *window_stats,
                          const struct flow_table *flows,
-                         int window_seconds, time_t now) {
-    struct anomaly_alert alerts[ANOMALY_MAX_ALERTS];
+                         int window_seconds, time_t now, int sync_rules) {
+    struct upload_job job;
     char timestamp[32];
-    int alert_count = 0;
+    int alert_count;
     int i;
 
+    memset(&job, 0, sizeof(job));
     iso_time_format(now, timestamp, sizeof(timestamp));
 
-    if (backend->enabled && backend->device_id[0] != '\0') {
-        backend_send_traffic(backend, window_stats, window_seconds, timestamp);
-    }
+    job.stats = *window_stats;
+    job.window_seconds = window_seconds;
+    strncpy(job.timestamp, timestamp, sizeof(job.timestamp) - 1);
+    job.send_heartbeat = 1;
+    job.sync_ruleset = sync_rules;
 
-    alert_count = anomaly_detector_check(window_stats, alerts, ANOMALY_MAX_ALERTS);
+    alert_count = anomaly_detector_check(window_stats, job.alerts, ANOMALY_MAX_ALERTS);
+    job.alert_count = alert_count;
     for (i = 0; i < alert_count; i++) {
-        const struct flow_entry *flow = flow_table_top(flows, protocol_for_alert(alerts[i].protocol));
-        logger_alert("%s", alerts[i].description);
-        if (backend->enabled && backend->device_id[0] != '\0') {
-            backend_send_alert(backend, &alerts[i], flow, window_seconds, timestamp);
+        const struct flow_entry *flow = flow_table_top(flows, protocol_for_alert(job.alerts[i].protocol));
+        logger_alert("%s", job.alerts[i].description);
+        if (flow != NULL) {
+            job.alert_flow[i] = *flow;
+            job.alert_has_flow[i] = 1;
         }
     }
 
-    if (backend->enabled && backend->device_id[0] != '\0') {
-        backend_send_heartbeat(backend);
-    }
+    uploader_submit(&job);
 }
 
 /* Pull the device's detection ruleset from the backend and apply its
@@ -126,6 +129,8 @@ int main(int argc, char *argv[]) {
     struct backend_config backend;
     time_t window_start = 0;
     time_t last_rules_sync = 0;
+    const char *log_packets_env = NULL;
+    int log_packets = 0;
 
     if (argc == 2 && strcmp(argv[1], "--help") == 0) {
         print_usage(argv[0]);
@@ -153,7 +158,9 @@ int main(int argc, char *argv[]) {
     flow_table_init(&flows);
     packet_window_init(&pkt_window);
     window_start = time(NULL);
-    logger_info("openwrt-agent started");
+    log_packets_env = getenv("AGENT_LOG_PACKETS");
+    log_packets = (log_packets_env != NULL && log_packets_env[0] != '\0');
+    logger_info("openwrt-agent started (per-packet logging %s)", log_packets ? "on" : "off");
 
     backend_config_load(&backend);
     if (backend.enabled) {
@@ -168,6 +175,10 @@ int main(int argc, char *argv[]) {
         logger_info("[BACKEND] disabled (set BACKEND_HOST to enable telemetry upload)");
     }
     last_rules_sync = time(NULL);
+
+    if (uploader_start(&backend) != 0) {
+        logger_info("[BACKEND] uploader thread failed to start; telemetry upload disabled");
+    }
 
     while (keep_running) {
         ssize_t bytes_read = packet_capture_receive(capture_fd, buffer, sizeof(buffer));
@@ -194,31 +205,33 @@ int main(int argc, char *argv[]) {
         now = time(NULL);
         flow_table_add(&flows, &packet);
         packet_window_push(&pkt_window, &packet, now);
-        logger_packet(packet.protocol == PROTO_TCP ? "TCP" : "UDP",
-                      packet.src_ip,
-                      packet.src_port,
-                      packet.dst_ip,
-                      packet.dst_port,
-                      (unsigned int)packet.packet_size);
+        if (log_packets) {
+            logger_packet(packet.protocol == PROTO_TCP ? "TCP" : "UDP",
+                          packet.src_ip,
+                          packet.src_port,
+                          packet.dst_ip,
+                          packet.dst_port,
+                          (unsigned int)packet.packet_size);
+        }
 
         if ((now - window_start) >= STATS_WINDOW_SECONDS) {
             struct traffic_stats rolling;
+            int sync_rules;
 
             packet_window_snapshot(&pkt_window, &rolling);
             log_stats_window(&rolling);
-            flush_window(&backend, &rolling, &flows, (int)(now - window_start), now);
-            flow_table_reset(&flows);
-            window_start = now;
-
-            // Periodically re-pull the ruleset so backend edits reach the router.
-            if ((now - last_rules_sync) >= RULES_SYNC_SECONDS) {
-                sync_ruleset(&backend);
+            sync_rules = ((now - last_rules_sync) >= RULES_SYNC_SECONDS);
+            flush_window(&rolling, &flows, (int)(now - window_start), now, sync_rules);
+            if (sync_rules) {
                 last_rules_sync = now;
             }
+            flow_table_reset(&flows);
+            window_start = now;
         }
     }
 
     logger_info("openwrt-agent stopped");
+    uploader_stop();
     packet_capture_close(capture_fd);
     return EXIT_SUCCESS;
 }

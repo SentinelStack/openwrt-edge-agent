@@ -11,9 +11,9 @@
 /* Thresholds pushed from the backend ruleset (0 = not set). When non-zero
    they win over both the ANOMALY_* env vars and the compiled defaults — this
    is what makes a rule edited in the backend change router behaviour. */
-static uint64_t backend_udp_threshold = 0;
-static uint64_t backend_tcp_threshold = 0;
-static uint64_t backend_byte_threshold = 0;
+static volatile uint64_t backend_udp_threshold = 0;
+static volatile uint64_t backend_tcp_threshold = 0;
+static volatile uint64_t backend_byte_threshold = 0;
 
 void anomaly_detector_set_thresholds(uint64_t udp_packets,
                                      uint64_t tcp_packets,

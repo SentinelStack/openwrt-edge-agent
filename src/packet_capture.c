@@ -7,7 +7,12 @@
 #include <unistd.h>
 
 int packet_capture_open(void) {
-    return socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
+    int fd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
+    if (fd >= 0) {
+        int rcvbuf = 4 * 1024 * 1024;
+        setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
+    }
+    return fd;
 }
 
 ssize_t packet_capture_receive(int fd, unsigned char *buffer, size_t buffer_size) {
