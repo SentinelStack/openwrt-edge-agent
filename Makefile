@@ -2,8 +2,8 @@ IMAGE_NAME ?= openwrt-c-toolchain:23.05.3
 ROUTER ?= root@192.168.1.1
 BIN ?= openwrt-agent
 SRCS := src/main.c src/packet_capture.c src/packet_parser.c src/traffic_stats.c \
-	src/anomaly_detector.c src/flow_table.c src/iso_time.c src/http_client.c \
-	src/backend_client.c src/rules_client.c src/logger.c
+	src/anomaly_detector.c src/flow_table.c src/packet_window.c src/iso_time.c \
+	src/http_client.c src/backend_client.c src/rules_client.c src/logger.c
 
 .PHONY: docker-build build check deploy run run-tcp run-udp clean
 

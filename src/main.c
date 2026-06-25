@@ -5,6 +5,7 @@
 #include "logger.h"
 #include "packet_capture.h"
 #include "packet_parser.h"
+#include "packet_window.h"
 #include "rules_client.h"
 #include "traffic_stats.h"
 
@@ -120,8 +121,8 @@ int main(int argc, char *argv[]) {
     enum filter_mode mode = FILTER_BOTH;
     int capture_fd = -1;
     unsigned char buffer[BUFFER_SIZE];
-    struct traffic_stats window_stats;
-    static struct flow_table flows; 
+    static struct flow_table flows;
+    static struct packet_window pkt_window;
     struct backend_config backend;
     time_t window_start = 0;
     time_t last_rules_sync = 0;
@@ -149,8 +150,8 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    traffic_stats_init(&window_stats);
     flow_table_init(&flows);
+    packet_window_init(&pkt_window);
     window_start = time(NULL);
     logger_info("openwrt-agent started");
 
@@ -190,8 +191,9 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
-        traffic_stats_add_packet(&window_stats, packet.protocol, packet.packet_size);
+        now = time(NULL);
         flow_table_add(&flows, &packet);
+        packet_window_push(&pkt_window, &packet, now);
         logger_packet(packet.protocol == PROTO_TCP ? "TCP" : "UDP",
                       packet.src_ip,
                       packet.src_port,
@@ -199,11 +201,12 @@ int main(int argc, char *argv[]) {
                       packet.dst_port,
                       (unsigned int)packet.packet_size);
 
-        now = time(NULL);
         if ((now - window_start) >= STATS_WINDOW_SECONDS) {
-            log_stats_window(&window_stats);
-            flush_window(&backend, &window_stats, &flows, (int)(now - window_start), now);
-            traffic_stats_reset(&window_stats);
+            struct traffic_stats rolling;
+
+            packet_window_snapshot(&pkt_window, &rolling);
+            log_stats_window(&rolling);
+            flush_window(&backend, &rolling, &flows, (int)(now - window_start), now);
             flow_table_reset(&flows);
             window_start = now;
 
