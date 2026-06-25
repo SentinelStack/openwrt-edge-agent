@@ -18,6 +18,7 @@ BACKEND_SCHEME="${BACKEND_SCHEME:-https}"
 BACKEND_PORT="${BACKEND_PORT:-443}"
 DEVICE_ID="${DEVICE_ID:-edge-router-01}"
 AGENT_API_KEY="${AGENT_API_KEY:-edge-agent-7f3c1a9e5b2d4f80}"
+AGENT_CAPTURE_IFACE="${AGENT_CAPTURE_IFACE:-br-lan}"
 
 start_service() {
     [ -f /etc/sentinel-agent.env ] && . /etc/sentinel-agent.env
@@ -29,7 +30,8 @@ start_service() {
         BACKEND_SCHEME="$BACKEND_SCHEME" \
         BACKEND_PORT="$BACKEND_PORT" \
         DEVICE_ID="$DEVICE_ID" \
-        AGENT_API_KEY="$AGENT_API_KEY"
+        AGENT_API_KEY="$AGENT_API_KEY" \
+        AGENT_CAPTURE_IFACE="$AGENT_CAPTURE_IFACE"
     procd_set_param respawn          # restart if it ever exits
     procd_set_param stdout 1         # forward stdout/stderr to syslog
     procd_set_param stderr 1
