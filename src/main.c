@@ -69,6 +69,7 @@ static uint8_t protocol_for_alert(const char *protocol) {
 static void flush_window(const struct traffic_stats *window_stats,
                          const struct flow_table *flows,
                          const struct dns_window *dns,
+                         const struct client_activity *activity,
                          int window_seconds, time_t now, int sync_rules) {
     struct upload_job job;
     char timestamp[32];
@@ -102,7 +103,7 @@ static void flush_window(const struct traffic_stats *window_stats,
 
     {
         struct client_roster roster;
-        client_roster_collect(&roster);
+        client_roster_collect(&roster, activity, now);
         if (roster.count > 0) {
             memcpy(job.clients, roster.entries, roster.count * sizeof(struct client_entry));
             job.client_count = (int)roster.count;
@@ -144,6 +145,7 @@ int main(int argc, char *argv[]) {
     static struct flow_table flows;
     static struct dns_window dns;
     static struct packet_window pkt_window;
+    static struct client_activity client_act;
     struct backend_config backend;
     time_t window_start = 0;
     time_t last_rules_sync = 0;
@@ -176,6 +178,7 @@ int main(int argc, char *argv[]) {
     flow_table_init(&flows);
     dns_window_init(&dns);
     packet_window_init(&pkt_window);
+    client_activity_init(&client_act);
     window_start = time(NULL);
     log_packets_env = getenv("AGENT_LOG_PACKETS");
     log_packets = (log_packets_env != NULL && log_packets_env[0] != '\0');
@@ -222,6 +225,7 @@ int main(int argc, char *argv[]) {
         }
 
         now = time(NULL);
+        client_activity_touch(&client_act, packet.src_ip, now);
         flow_table_add(&flows, &packet);
         if (packet.is_dns_query) {
             dns_window_add(&dns, packet.src_ip, packet.dns_qname);
@@ -243,7 +247,7 @@ int main(int argc, char *argv[]) {
             packet_window_snapshot(&pkt_window, &rolling);
             log_stats_window(&rolling);
             sync_rules = ((now - last_rules_sync) >= RULES_SYNC_SECONDS);
-            flush_window(&rolling, &flows, &dns, (int)(now - window_start), now, sync_rules);
+            flush_window(&rolling, &flows, &dns, &client_act, (int)(now - window_start), now, sync_rules);
             if (sync_rules) {
                 last_rules_sync = now;
             }

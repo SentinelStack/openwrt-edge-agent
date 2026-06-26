@@ -1,20 +1,26 @@
 #include "client_roster.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define DHCP_LEASES_FILE "/tmp/dhcp.leases"
-#define ARP_FILE "/proc/net/arp"
+#define CLIENT_ONLINE_WINDOW_SECONDS 60
 
-static struct client_entry *roster_find_by_ip(struct client_roster *roster, const char *ip) {
-    size_t i;
-
-    for (i = 0; i < roster->count; i++) {
-        if (strncmp(roster->entries[i].ip, ip, sizeof(roster->entries[i].ip)) == 0) {
-            return &roster->entries[i];
+static int is_private_ip(const char *ip) {
+    if (strncmp(ip, "192.168.", 8) == 0) {
+        return 1;
+    }
+    if (strncmp(ip, "10.", 3) == 0) {
+        return 1;
+    }
+    if (strncmp(ip, "172.", 4) == 0) {
+        int second = atoi(ip + 4);
+        if (second >= 16 && second <= 31) {
+            return 1;
         }
     }
-    return NULL;
+    return 0;
 }
 
 static void read_dhcp_leases(struct client_roster *roster) {
@@ -62,52 +68,71 @@ static void read_dhcp_leases(struct client_roster *roster) {
     fclose(fp);
 }
 
-static void read_arp_flags(struct client_roster *roster) {
-    FILE *fp = NULL;
-    char line[256];
-    int first = 1;
+void client_activity_init(struct client_activity *activity) {
+    if (activity != NULL) {
+        memset(activity, 0, sizeof(*activity));
+    }
+}
 
-    fp = fopen(ARP_FILE, "r");
-    if (fp == NULL) {
+void client_activity_touch(struct client_activity *activity, const char *ip, time_t now) {
+    size_t i;
+    size_t oldest = 0;
+    struct client_activity_entry *slot = NULL;
+
+    if (activity == NULL || ip == NULL || ip[0] == '\0' || !is_private_ip(ip)) {
         return;
     }
 
-    while (fgets(line, sizeof(line), fp) != NULL) {
-        char ip[16];
-        char hwtype[16];
-        unsigned int flags = 0;
-        struct client_entry *entry = NULL;
-
-        if (first) {
-            first = 0;
-            continue;
-        }
-
-        ip[0] = '\0';
-        hwtype[0] = '\0';
-
-        if (sscanf(line, "%15s %15s 0x%x", ip, hwtype, &flags) < 3) {
-            continue;
-        }
-        if (ip[0] == '\0') {
-            continue;
-        }
-
-        entry = roster_find_by_ip(roster, ip);
-        if (entry != NULL && (flags & 0x2) != 0) {
-            entry->online = 1;
+    for (i = 0; i < activity->count; i++) {
+        if (strncmp(activity->entries[i].ip, ip, sizeof(activity->entries[i].ip)) == 0) {
+            activity->entries[i].last_seen = now;
+            return;
         }
     }
 
-    fclose(fp);
+    if (activity->count < CLIENT_ACTIVITY_MAX) {
+        slot = &activity->entries[activity->count];
+        memset(slot, 0, sizeof(*slot));
+        strncpy(slot->ip, ip, sizeof(slot->ip) - 1);
+        slot->last_seen = now;
+        activity->count++;
+        return;
+    }
+
+    for (i = 1; i < activity->count; i++) {
+        if (activity->entries[i].last_seen < activity->entries[oldest].last_seen) {
+            oldest = i;
+        }
+    }
+    memset(&activity->entries[oldest], 0, sizeof(activity->entries[oldest]));
+    strncpy(activity->entries[oldest].ip, ip, sizeof(activity->entries[oldest].ip) - 1);
+    activity->entries[oldest].last_seen = now;
 }
 
-void client_roster_collect(struct client_roster *out) {
+static int activity_is_online(const struct client_activity *activity, const char *ip, time_t now) {
+    size_t i;
+
+    if (activity == NULL) {
+        return 0;
+    }
+    for (i = 0; i < activity->count; i++) {
+        if (strncmp(activity->entries[i].ip, ip, sizeof(activity->entries[i].ip)) == 0) {
+            return (now - activity->entries[i].last_seen) <= CLIENT_ONLINE_WINDOW_SECONDS;
+        }
+    }
+    return 0;
+}
+
+void client_roster_collect(struct client_roster *out, const struct client_activity *activity, time_t now) {
+    size_t i;
+
     if (out == NULL) {
         return;
     }
 
     memset(out, 0, sizeof(*out));
     read_dhcp_leases(out);
-    read_arp_flags(out);
+    for (i = 0; i < out->count; i++) {
+        out->entries[i].online = activity_is_online(activity, out->entries[i].ip, now);
+    }
 }
