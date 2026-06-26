@@ -62,6 +62,57 @@ int parse_packet(const unsigned char *buffer, size_t len, struct parsed_packet *
     out->dst_port = read_u16_be(buffer + transport_offset + 2);
     out->packet_size = len;
 
+    if (ip->protocol == IPPROTO_UDP && out->dst_port == 53) {
+        size_t dns_offset = transport_offset + 8;
+        if (dns_offset + 12 <= len) {
+            const unsigned char *dns = buffer + dns_offset;
+            uint16_t qdcount = read_u16_be(dns + 4);
+            if (qdcount >= 1 && (dns[2] & 0x80) == 0) {
+                size_t pos = dns_offset + 12;
+                size_t o = 0;
+                int ok = 1;
+                int done = 0;
+                while (!done) {
+                    unsigned char label_len;
+                    size_t j;
+                    if (pos >= len) {
+                        ok = 0;
+                        break;
+                    }
+                    label_len = buffer[pos];
+                    if (label_len == 0) {
+                        done = 1;
+                        break;
+                    }
+                    if ((label_len & 0xC0) != 0) {
+                        ok = 0;
+                        break;
+                    }
+                    if (pos + 1 + label_len > len) {
+                        ok = 0;
+                        break;
+                    }
+                    if (o + label_len + 1 > sizeof(out->dns_qname) - 1) {
+                        ok = 0;
+                        break;
+                    }
+                    for (j = 0; j < label_len; j++) {
+                        out->dns_qname[o++] = (char)buffer[pos + 1 + j];
+                    }
+                    out->dns_qname[o++] = '.';
+                    pos += 1 + label_len;
+                }
+                if (ok && done && o > 0) {
+                    out->dns_qname[o - 1] = '\0';
+                    out->is_dns_query = 1;
+                } else {
+                    out->dns_qname[0] = '\0';
+                    out->is_dns_query = 0;
+                }
+            }
+        }
+    }
+
     src_addr.s_addr = ip->saddr;
     dst_addr.s_addr = ip->daddr;
     if (inet_ntop(AF_INET, &src_addr, out->src_ip, sizeof(out->src_ip)) == NULL) {

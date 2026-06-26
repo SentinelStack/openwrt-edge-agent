@@ -14,6 +14,8 @@ struct parsed_packet {
     uint16_t src_port;
     uint16_t dst_port;
     size_t packet_size;
+    uint8_t is_dns_query;
+    char dns_qname[256];
 };
 
 int parse_packet(const unsigned char *buffer, size_t len, struct parsed_packet *out);

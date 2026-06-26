@@ -3,6 +3,7 @@
 
 #include "anomaly_detector.h"
 #include "backend_client.h"
+#include "dns_window.h"
 #include "flow_table.h"
 #include "traffic_stats.h"
 
@@ -15,6 +16,9 @@ struct upload_job {
     struct anomaly_alert alerts[ANOMALY_MAX_ALERTS];
     struct flow_entry alert_flow[ANOMALY_MAX_ALERTS];
     int alert_has_flow[ANOMALY_MAX_ALERTS];
+
+    int dns_count;
+    struct dns_event dns_events[DNS_MAX_EVENTS];
 
     int send_heartbeat;
     int sync_ruleset;

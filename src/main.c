@@ -1,5 +1,6 @@
 #include "anomaly_detector.h"
 #include "backend_client.h"
+#include "dns_window.h"
 #include "flow_table.h"
 #include "iso_time.h"
 #include "logger.h"
@@ -66,6 +67,7 @@ static uint8_t protocol_for_alert(const char *protocol) {
 
 static void flush_window(const struct traffic_stats *window_stats,
                          const struct flow_table *flows,
+                         const struct dns_window *dns,
                          int window_seconds, time_t now, int sync_rules) {
     struct upload_job job;
     char timestamp[32];
@@ -90,6 +92,11 @@ static void flush_window(const struct traffic_stats *window_stats,
             job.alert_flow[i] = *flow;
             job.alert_has_flow[i] = 1;
         }
+    }
+
+    if (dns != NULL && dns->count > 0) {
+        memcpy(job.dns_events, dns->events, dns->count * sizeof(struct dns_event));
+        job.dns_count = (int)dns->count;
     }
 
     uploader_submit(&job);
@@ -125,6 +132,7 @@ int main(int argc, char *argv[]) {
     int capture_fd = -1;
     unsigned char buffer[BUFFER_SIZE];
     static struct flow_table flows;
+    static struct dns_window dns;
     static struct packet_window pkt_window;
     struct backend_config backend;
     time_t window_start = 0;
@@ -156,6 +164,7 @@ int main(int argc, char *argv[]) {
     }
 
     flow_table_init(&flows);
+    dns_window_init(&dns);
     packet_window_init(&pkt_window);
     window_start = time(NULL);
     log_packets_env = getenv("AGENT_LOG_PACKETS");
@@ -204,6 +213,9 @@ int main(int argc, char *argv[]) {
 
         now = time(NULL);
         flow_table_add(&flows, &packet);
+        if (packet.is_dns_query) {
+            dns_window_add(&dns, packet.src_ip, packet.dns_qname);
+        }
         packet_window_push(&pkt_window, &packet, now);
         if (log_packets) {
             logger_packet(packet.protocol == PROTO_TCP ? "TCP" : "UDP",
@@ -221,11 +233,12 @@ int main(int argc, char *argv[]) {
             packet_window_snapshot(&pkt_window, &rolling);
             log_stats_window(&rolling);
             sync_rules = ((now - last_rules_sync) >= RULES_SYNC_SECONDS);
-            flush_window(&rolling, &flows, (int)(now - window_start), now, sync_rules);
+            flush_window(&rolling, &flows, &dns, (int)(now - window_start), now, sync_rules);
             if (sync_rules) {
                 last_rules_sync = now;
             }
             flow_table_reset(&flows);
+            dns_window_reset(&dns);
             window_start = now;
         }
     }

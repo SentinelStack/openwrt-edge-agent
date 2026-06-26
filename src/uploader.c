@@ -39,6 +39,11 @@ static void run_job(const struct upload_job *job) {
                            job->window_seconds, job->timestamp);
     }
 
+    if (job->dns_count > 0) {
+        backend_send_dns(g_backend, job->dns_events, job->dns_count,
+                         job->window_seconds, job->timestamp);
+    }
+
     if (job->send_heartbeat) {
         backend_send_heartbeat(g_backend);
     }

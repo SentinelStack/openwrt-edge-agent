@@ -421,3 +421,55 @@ int backend_send_alert(const struct backend_config *cfg,
     status = http_post_json(cfg->scheme, cfg->host, cfg->port, "/api/alerts", body, cfg->api_key, NULL, 0);
     return http_ok(status) ? 0 : -1;
 }
+
+#define DNS_BODY_MAX 8192
+
+int backend_send_dns(const struct backend_config *cfg,
+                     const struct dns_event *events, int count,
+                     int window_seconds, const char *timestamp) {
+    char body[DNS_BODY_MAX];
+    char ip_esc[32];
+    char domain_esc[512];
+    size_t pos = 0;
+    int n;
+    int i;
+    int status = 0;
+
+    if (cfg == NULL || !cfg->enabled || events == NULL || timestamp == NULL ||
+        count <= 0 || cfg->device_id[0] == '\0') {
+        return -1;
+    }
+
+    n = snprintf(body + pos, sizeof(body) - pos,
+                 "{\"deviceId\":\"%s\",\"timestamp\":\"%s\",\"windowSeconds\":%d,\"queries\":[",
+                 cfg->device_id, timestamp, window_seconds);
+    if (n < 0 || (size_t)n >= sizeof(body) - pos) {
+        return -1;
+    }
+    pos += (size_t)n;
+
+    for (i = 0; i < count; i++) {
+        if (pos + 512 >= sizeof(body)) {
+            break;
+        }
+        json_escape(events[i].client_ip, ip_esc, sizeof(ip_esc));
+        json_escape(events[i].domain, domain_esc, sizeof(domain_esc));
+        n = snprintf(body + pos, sizeof(body) - pos,
+                     "%s{\"clientIp\":\"%s\",\"domain\":\"%s\",\"count\":%u}",
+                     i == 0 ? "" : ",", ip_esc, domain_esc,
+                     (unsigned int)events[i].count);
+        if (n < 0 || (size_t)n >= sizeof(body) - pos) {
+            break;
+        }
+        pos += (size_t)n;
+    }
+
+    n = snprintf(body + pos, sizeof(body) - pos, "]}");
+    if (n < 0 || (size_t)n >= sizeof(body) - pos) {
+        return -1;
+    }
+    pos += (size_t)n;
+
+    status = http_post_json(cfg->scheme, cfg->host, cfg->port, "/api/dns/queries", body, cfg->api_key, NULL, 0);
+    return http_ok(status) ? 0 : -1;
+}
