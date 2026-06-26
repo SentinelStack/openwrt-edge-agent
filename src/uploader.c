@@ -48,6 +48,10 @@ static void run_job(const struct upload_job *job) {
         backend_send_clients(g_backend, job->clients, job->client_count, job->timestamp);
     }
 
+    if (job->fx_count > 0) {
+        backend_send_forensics(g_backend, job->fx_packets, job->fx_count);
+    }
+
     if (job->send_heartbeat) {
         backend_send_heartbeat(g_backend);
     }

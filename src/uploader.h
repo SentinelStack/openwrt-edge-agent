@@ -6,6 +6,7 @@
 #include "client_roster.h"
 #include "dns_window.h"
 #include "flow_table.h"
+#include "fx_ring.h"
 #include "traffic_stats.h"
 
 struct upload_job {
@@ -23,6 +24,9 @@ struct upload_job {
 
     int client_count;
     struct client_entry clients[CLIENT_MAX];
+
+    int fx_count;
+    struct fx_packet fx_packets[FX_SAMPLE_MAX];
 
     int send_heartbeat;
     int sync_ruleset;

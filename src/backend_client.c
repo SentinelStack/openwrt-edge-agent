@@ -527,3 +527,75 @@ int backend_send_clients(const struct backend_config *cfg,
     status = http_post_json(cfg->scheme, cfg->host, cfg->port, "/api/clients", body, cfg->api_key, NULL, 0);
     return http_ok(status) ? 0 : -1;
 }
+
+#define FORENSICS_BODY_MAX 8192
+
+int backend_send_forensics(const struct backend_config *cfg,
+                           const struct fx_packet *packets, int count) {
+    char body[FORENSICS_BODY_MAX];
+    char src_esc[32];
+    char dst_esc[32];
+    char ts_buf[32];
+    size_t pos = 0;
+    int written = 0;
+    int n;
+    int i;
+    int status = 0;
+
+    if (cfg == NULL || !cfg->enabled || packets == NULL ||
+        count <= 0 || cfg->device_id[0] == '\0') {
+        return -1;
+    }
+
+    n = snprintf(body + pos, sizeof(body) - pos,
+                 "{\"deviceId\":\"%s\",\"packets\":[", cfg->device_id);
+    if (n < 0 || (size_t)n >= sizeof(body) - pos) {
+        return -1;
+    }
+    pos += (size_t)n;
+
+    for (i = 0; i < count; i++) {
+        const char *proto;
+
+        if (packets[i].protocol == PROTO_TCP) {
+            proto = "TCP";
+        } else if (packets[i].protocol == PROTO_UDP) {
+            proto = "UDP";
+        } else {
+            continue;
+        }
+
+        if (pos + 256 >= sizeof(body)) {
+            break;
+        }
+        json_escape(packets[i].src_ip, src_esc, sizeof(src_esc));
+        json_escape(packets[i].dst_ip, dst_esc, sizeof(dst_esc));
+        iso_time_format(packets[i].ts, ts_buf, sizeof(ts_buf));
+        n = snprintf(body + pos, sizeof(body) - pos,
+                     "%s{\"timestamp\":\"%s\",\"protocol\":\"%s\","
+                     "\"sourceIp\":\"%s\",\"destinationIp\":\"%s\","
+                     "\"sourcePort\":%u,\"destinationPort\":%u,\"packetSize\":%u}",
+                     written == 0 ? "" : ",", ts_buf, proto, src_esc, dst_esc,
+                     (unsigned int)packets[i].src_port,
+                     (unsigned int)packets[i].dst_port,
+                     (unsigned int)packets[i].size);
+        if (n < 0 || (size_t)n >= sizeof(body) - pos) {
+            break;
+        }
+        pos += (size_t)n;
+        written++;
+    }
+
+    if (written == 0) {
+        return -1;
+    }
+
+    n = snprintf(body + pos, sizeof(body) - pos, "]}");
+    if (n < 0 || (size_t)n >= sizeof(body) - pos) {
+        return -1;
+    }
+    pos += (size_t)n;
+
+    status = http_post_json(cfg->scheme, cfg->host, cfg->port, "/api/forensics/packets/batch", body, cfg->api_key, NULL, 0);
+    return http_ok(status) ? 0 : -1;
+}

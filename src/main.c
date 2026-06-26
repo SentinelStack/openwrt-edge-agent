@@ -3,6 +3,7 @@
 #include "client_roster.h"
 #include "dns_window.h"
 #include "flow_table.h"
+#include "fx_ring.h"
 #include "iso_time.h"
 #include "logger.h"
 #include "packet_capture.h"
@@ -70,6 +71,7 @@ static void flush_window(const struct traffic_stats *window_stats,
                          const struct flow_table *flows,
                          const struct dns_window *dns,
                          const struct client_activity *activity,
+                         const struct fx_ring *fx,
                          int window_seconds, time_t now, int sync_rules) {
     struct upload_job job;
     char timestamp[32];
@@ -94,6 +96,10 @@ static void flush_window(const struct traffic_stats *window_stats,
             job.alert_flow[i] = *flow;
             job.alert_has_flow[i] = 1;
         }
+    }
+
+    if (alert_count > 0 && fx != NULL) {
+        job.fx_count = fx_ring_recent(fx, job.fx_packets, FX_SAMPLE_MAX);
     }
 
     if (dns != NULL && dns->count > 0) {
@@ -146,6 +152,7 @@ int main(int argc, char *argv[]) {
     static struct dns_window dns;
     static struct packet_window pkt_window;
     static struct client_activity client_act;
+    static struct fx_ring fx;
     struct backend_config backend;
     time_t window_start = 0;
     time_t last_rules_sync = 0;
@@ -179,6 +186,7 @@ int main(int argc, char *argv[]) {
     dns_window_init(&dns);
     packet_window_init(&pkt_window);
     client_activity_init(&client_act);
+    fx_ring_init(&fx);
     window_start = time(NULL);
     log_packets_env = getenv("AGENT_LOG_PACKETS");
     log_packets = (log_packets_env != NULL && log_packets_env[0] != '\0');
@@ -231,6 +239,7 @@ int main(int argc, char *argv[]) {
             dns_window_add(&dns, packet.src_ip, packet.dns_qname);
         }
         packet_window_push(&pkt_window, &packet, now);
+        fx_ring_push(&fx, &packet, now);
         if (log_packets) {
             logger_packet(packet.protocol == PROTO_TCP ? "TCP" : "UDP",
                           packet.src_ip,
@@ -247,7 +256,7 @@ int main(int argc, char *argv[]) {
             packet_window_snapshot(&pkt_window, &rolling);
             log_stats_window(&rolling);
             sync_rules = ((now - last_rules_sync) >= RULES_SYNC_SECONDS);
-            flush_window(&rolling, &flows, &dns, &client_act, (int)(now - window_start), now, sync_rules);
+            flush_window(&rolling, &flows, &dns, &client_act, &fx, (int)(now - window_start), now, sync_rules);
             if (sync_rules) {
                 last_rules_sync = now;
             }

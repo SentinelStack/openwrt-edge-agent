@@ -16,7 +16,7 @@
 #include <mbedtls/x509_crt.h>
 
 #define HTTP_TIMEOUT_SECONDS 3
-#define HTTP_REQUEST_MAX 4096
+#define HTTP_REQUEST_MAX 16384
 #define HTTP_RESPONSE_MAX 4096
 #define HTTP_GET_RESPONSE_MAX 8192
 #define CA_BUNDLE_PATH "/etc/ssl/certs/ca-certificates.crt"

@@ -5,6 +5,7 @@
 #include "client_roster.h"
 #include "dns_window.h"
 #include "flow_table.h"
+#include "fx_ring.h"
 #include "traffic_stats.h"
 
 
@@ -49,5 +50,8 @@ int backend_send_dns(const struct backend_config *cfg,
 int backend_send_clients(const struct backend_config *cfg,
                          const struct client_entry *clients, int count,
                          const char *timestamp);
+
+int backend_send_forensics(const struct backend_config *cfg,
+                           const struct fx_packet *packets, int count);
 
 #endif
