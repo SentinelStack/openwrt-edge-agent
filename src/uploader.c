@@ -44,6 +44,10 @@ static void run_job(const struct upload_job *job) {
                          job->window_seconds, job->timestamp);
     }
 
+    if (job->client_count > 0) {
+        backend_send_clients(g_backend, job->clients, job->client_count, job->timestamp);
+    }
+
     if (job->send_heartbeat) {
         backend_send_heartbeat(g_backend);
     }

@@ -1,5 +1,6 @@
 #include "anomaly_detector.h"
 #include "backend_client.h"
+#include "client_roster.h"
 #include "dns_window.h"
 #include "flow_table.h"
 #include "iso_time.h"
@@ -97,6 +98,15 @@ static void flush_window(const struct traffic_stats *window_stats,
     if (dns != NULL && dns->count > 0) {
         memcpy(job.dns_events, dns->events, dns->count * sizeof(struct dns_event));
         job.dns_count = (int)dns->count;
+    }
+
+    {
+        struct client_roster roster;
+        client_roster_collect(&roster);
+        if (roster.count > 0) {
+            memcpy(job.clients, roster.entries, roster.count * sizeof(struct client_entry));
+            job.client_count = (int)roster.count;
+        }
     }
 
     uploader_submit(&job);

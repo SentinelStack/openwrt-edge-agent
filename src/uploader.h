@@ -3,6 +3,7 @@
 
 #include "anomaly_detector.h"
 #include "backend_client.h"
+#include "client_roster.h"
 #include "dns_window.h"
 #include "flow_table.h"
 #include "traffic_stats.h"
@@ -19,6 +20,9 @@ struct upload_job {
 
     int dns_count;
     struct dns_event dns_events[DNS_MAX_EVENTS];
+
+    int client_count;
+    struct client_entry clients[CLIENT_MAX];
 
     int send_heartbeat;
     int sync_ruleset;

@@ -2,6 +2,7 @@
 #define BACKEND_CLIENT_H
 
 #include "anomaly_detector.h"
+#include "client_roster.h"
 #include "dns_window.h"
 #include "flow_table.h"
 #include "traffic_stats.h"
@@ -44,5 +45,9 @@ int backend_send_alert(const struct backend_config *cfg,
 int backend_send_dns(const struct backend_config *cfg,
                      const struct dns_event *events, int count,
                      int window_seconds, const char *timestamp);
+
+int backend_send_clients(const struct backend_config *cfg,
+                         const struct client_entry *clients, int count,
+                         const char *timestamp);
 
 #endif
