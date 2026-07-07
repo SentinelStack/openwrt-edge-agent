@@ -23,6 +23,9 @@
 
 #define BUFFER_SIZE 65536
 #define STATS_WINDOW_SECONDS 5
+/* A single source touching at least this many distinct destination ports within
+   one window is flagged as a suspected port scan (e.g. nmap). */
+#define PORT_SCAN_MIN_PORTS 15
 #define RULES_SYNC_SECONDS 60
 
 enum filter_mode {
@@ -95,6 +98,43 @@ static void flush_window(const struct traffic_stats *window_stats,
         if (flow != NULL) {
             job.alert_flow[i] = *flow;
             job.alert_has_flow[i] = 1;
+        }
+    }
+
+    /* Port-scan detection: one source probing many distinct destination ports
+       (e.g. nmap), toward the router or any host on the monitored network. Runs
+       on the flow table, which the threshold checks above do not use. */
+    if (alert_count < ANOMALY_MAX_ALERTS) {
+        char scan_src[16];
+        char scan_dst[16];
+        size_t fanout;
+
+        scan_src[0] = '\0';
+        scan_dst[0] = '\0';
+        fanout = flow_table_port_fanout(flows, scan_src, sizeof(scan_src),
+                                        scan_dst, sizeof(scan_dst));
+        if (fanout >= (size_t)PORT_SCAN_MIN_PORTS) {
+            struct anomaly_alert *a = &job.alerts[alert_count];
+            struct flow_entry *f = &job.alert_flow[alert_count];
+
+            a->type = "PORT_SCAN_SUSPECTED";
+            a->severity = "MEDIUM";
+            a->protocol = "TCP";
+            a->packet_count = (uint64_t)fanout;
+            a->bytes_count = 0;
+            snprintf(a->description, sizeof(a->description),
+                     "Possible port scan: %s probed %zu distinct ports on %s",
+                     scan_src, fanout, scan_dst);
+
+            memset(f, 0, sizeof(*f));
+            strncpy(f->src_ip, scan_src, sizeof(f->src_ip) - 1);
+            strncpy(f->dst_ip, scan_dst, sizeof(f->dst_ip) - 1);
+            f->protocol = PROTO_TCP;
+            job.alert_has_flow[alert_count] = 1;
+
+            logger_alert("%s", a->description);
+            alert_count++;
+            job.alert_count = alert_count;
         }
     }
 

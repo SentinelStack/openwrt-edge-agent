@@ -5,7 +5,7 @@
 
 #include <stdint.h>
 
-#define ANOMALY_MAX_ALERTS 3
+#define ANOMALY_MAX_ALERTS 4
 
 
 struct anomaly_alert {
