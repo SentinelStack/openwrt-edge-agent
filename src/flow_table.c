@@ -76,13 +76,28 @@ const struct flow_entry *flow_table_top(const struct flow_table *table, uint8_t 
     return best;
 }
 
-size_t flow_table_port_fanout(const struct flow_table *table,
+/* FNV-1a hash of a destination endpoint (IP string + port), folded to fit the
+   scan-detection hash set below. */
+static uint32_t endpoint_hash(const char *ip, uint16_t port) {
+    uint32_t h = 2166136261u;
+    const unsigned char *p = (const unsigned char *)ip;
+
+    while (*p != '\0') {
+        h ^= (uint32_t)(*p++);
+        h *= 16777619u;
+    }
+    h ^= (uint32_t)port;
+    h *= 16777619u;
+    return h;
+}
+
+size_t flow_table_scan_fanout(const struct flow_table *table,
                               char *out_src_ip, size_t src_len,
                               char *out_dst_ip, size_t dst_len) {
-    /* 65536-bit bitmap of destination ports seen for one source. The capture
-       loop is single-threaded, so a static scratch buffer is safe and keeps it
-       off the stack. */
-    static uint8_t seen[8192];
+    /* 2^18-slot hash set of distinct (IP:port) endpoints for one source. Static
+       (the capture loop is single-threaded) to keep 32 KB off the stack. Rare
+       hash collisions only ever undercount, which is harmless for a threshold. */
+    static uint8_t seen[32768];
     size_t best = 0;
     size_t i;
     size_t j;
@@ -111,14 +126,14 @@ size_t flow_table_port_fanout(const struct flow_table *table,
         memset(seen, 0, sizeof(seen));
         for (j = 0; j < table->count; j++) {
             const struct flow_entry *f = &table->entries[j];
-            uint16_t port;
+            uint32_t slot;
 
             if (strncmp(f->src_ip, e->src_ip, sizeof(e->src_ip)) != 0) {
                 continue;
             }
-            port = f->dst_port;
-            if ((seen[port >> 3] & (uint8_t)(1u << (port & 7))) == 0) {
-                seen[port >> 3] |= (uint8_t)(1u << (port & 7));
+            slot = endpoint_hash(f->dst_ip, f->dst_port) & 0x3FFFFu; /* 262144 slots */
+            if ((seen[slot >> 3] & (uint8_t)(1u << (slot & 7))) == 0) {
+                seen[slot >> 3] |= (uint8_t)(1u << (slot & 7));
                 distinct++;
                 sample_dst = f->dst_ip;
             }

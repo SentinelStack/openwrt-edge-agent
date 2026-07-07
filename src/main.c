@@ -23,9 +23,10 @@
 
 #define BUFFER_SIZE 65536
 #define STATS_WINDOW_SECONDS 5
-/* A single source touching at least this many distinct destination ports within
-   one window is flagged as a suspected port scan (e.g. nmap). */
-#define PORT_SCAN_MIN_PORTS 15
+/* A single source reaching at least this many distinct destination endpoints
+   (IP:port) within one window is flagged as a suspected scan (nmap and the
+   like) — vertical port scan or horizontal host sweep, TCP or UDP. */
+#define PORT_SCAN_MIN_ENDPOINTS 12
 #define RULES_SYNC_SECONDS 60
 
 enum filter_mode {
@@ -101,9 +102,10 @@ static void flush_window(const struct traffic_stats *window_stats,
         }
     }
 
-    /* Port-scan detection: one source probing many distinct destination ports
-       (e.g. nmap), toward the router or any host on the monitored network. Runs
-       on the flow table, which the threshold checks above do not use. */
+    /* Scan detection: one source reaching many distinct destination endpoints
+       (IP:port) — nmap toward the router or any host on the monitored network,
+       vertical or horizontal, TCP or UDP. Runs on the flow table, which the
+       threshold checks above do not use. */
     if (alert_count < ANOMALY_MAX_ALERTS) {
         char scan_src[16];
         char scan_dst[16];
@@ -111,9 +113,9 @@ static void flush_window(const struct traffic_stats *window_stats,
 
         scan_src[0] = '\0';
         scan_dst[0] = '\0';
-        fanout = flow_table_port_fanout(flows, scan_src, sizeof(scan_src),
+        fanout = flow_table_scan_fanout(flows, scan_src, sizeof(scan_src),
                                         scan_dst, sizeof(scan_dst));
-        if (fanout >= (size_t)PORT_SCAN_MIN_PORTS) {
+        if (fanout >= (size_t)PORT_SCAN_MIN_ENDPOINTS) {
             struct anomaly_alert *a = &job.alerts[alert_count];
             struct flow_entry *f = &job.alert_flow[alert_count];
 
@@ -123,7 +125,7 @@ static void flush_window(const struct traffic_stats *window_stats,
             a->packet_count = (uint64_t)fanout;
             a->bytes_count = 0;
             snprintf(a->description, sizeof(a->description),
-                     "Possible port scan: %s probed %zu distinct ports on %s",
+                     "Possible scan: %s probed %zu distinct endpoints (e.g. %s)",
                      scan_src, fanout, scan_dst);
 
             memset(f, 0, sizeof(*f));
